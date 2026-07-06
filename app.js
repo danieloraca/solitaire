@@ -19,6 +19,7 @@ const GOLD = "#f2d36b";
 
 let wasm = null;
 let drag = null;
+let drawQueued = false;
 
 function foundationX(index) {
   return LEFT + (CARD_W + GAP) * (3 + index);
@@ -51,7 +52,19 @@ async function load() {
   const module = await WebAssembly.instantiate(bytes, {});
   wasm = module.instance.exports;
   wasm.new_game(newSeed());
-  draw();
+  scheduleDraw();
+}
+
+function scheduleDraw() {
+  if (drawQueued || !wasm) {
+    return;
+  }
+
+  drawQueued = true;
+  requestAnimationFrame(() => {
+    drawQueued = false;
+    draw();
+  });
 }
 
 function draw() {
@@ -59,7 +72,6 @@ function draw() {
   drawSlots();
   drawCards();
   drawHud();
-  requestAnimationFrame(draw);
 }
 
 function drawFelt() {
@@ -418,6 +430,7 @@ canvas.addEventListener("pointerdown", (event) => {
     moved: false,
   };
   wasm.click(point.x, point.y);
+  scheduleDraw();
 });
 
 canvas.addEventListener("pointermove", (event) => {
@@ -431,6 +444,7 @@ canvas.addEventListener("pointermove", (event) => {
   const dx = point.x - drag.start.x;
   const dy = point.y - drag.start.y;
   drag.moved = drag.moved || Math.hypot(dx, dy) > 5;
+  scheduleDraw();
 });
 
 canvas.addEventListener("pointerup", (event) => {
@@ -446,19 +460,24 @@ canvas.addEventListener("pointerup", (event) => {
   if (shouldDrop) {
     wasm.click(point.x, point.y);
   }
+  scheduleDraw();
 });
 
 canvas.addEventListener("pointercancel", (event) => {
   if (drag?.pointerId === event.pointerId) {
     drag = null;
+    scheduleDraw();
   }
 });
 
 newGameButton.addEventListener("click", () => {
   if (wasm) {
     wasm.new_game(newSeed());
+    scheduleDraw();
   }
 });
+
+window.addEventListener("resize", scheduleDraw);
 
 load().catch((error) => {
   statusEl.textContent = error.message;
