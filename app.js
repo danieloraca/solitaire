@@ -188,15 +188,33 @@ function drawSlot(x, y, label) {
 
 function drawCards() {
   const count = wasm.render_count();
+  const dragged = [];
   for (let i = 0; i < count; i += 1) {
     const selected = wasm.card_selected(i) === 1;
-    const dragOffset = selected && drag?.moved ? dragOffsetForCard() : { x: 0, y: 0 };
-    const x = wasm.card_x(i) + dragOffset.x;
-    const y = wasm.card_y(i) + dragOffset.y;
+    if (selected && drag?.moved) {
+      dragged.push(i);
+      continue;
+    }
+
+    drawRenderCard(i, 0, 0, selected);
+  }
+
+  if (!dragged.length) {
+    return;
+  }
+
+  const offset = dragOffsetForCard();
+  for (const i of dragged) {
+    drawRenderCard(i, offset.x, offset.y, true);
+  }
+}
+
+function drawRenderCard(i, offsetX, offsetY, selected) {
+    const x = wasm.card_x(i) + offsetX;
+    const y = wasm.card_y(i) + offsetY;
     const faceUp = wasm.card_face_up(i) === 1;
 
     drawCardSprite(x, y, faceUp, wasm.card_rank(i), wasm.card_suit(i), selected);
-  }
 }
 
 function drawCardSprite(x, y, faceUp, rank, suit, selected) {
