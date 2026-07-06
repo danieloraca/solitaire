@@ -78,7 +78,7 @@ canvas {
   display: block;
   width: 100%;
   height: auto;
-  aspect-ratio: 1100 / 720;
+  aspect-ratio: 1100 / 780;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);

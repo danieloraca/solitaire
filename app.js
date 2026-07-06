@@ -4,14 +4,14 @@ const statusEl = document.querySelector("#status");
 const newGameButton = document.querySelector("#new-game");
 
 const W = 1100;
-const H = 720;
-const CARD_W = 82;
-const CARD_H = 118;
-const CARD_PAD = 24;
-const TOP = 34;
+const H = 780;
+const CARD_W = 104;
+const CARD_H = 150;
+const CARD_PAD = 30;
+const TOP = 30;
 const LEFT = 34;
-const GAP = 22;
-const TABLEAU_TOP = 188;
+const GAP = 18;
+const TABLEAU_TOP = 214;
 const SUITS = ["\u2660", "\u2665", "\u2666", "\u2663"];
 const RANKS = ["", "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
 const FELT_LIGHT = "#23845b";
@@ -48,7 +48,7 @@ function newSeed() {
 }
 
 async function load() {
-  const response = await fetch("./dist/solitaire.wasm?v=wide-layout-1", {
+  const response = await fetch("./dist/solitaire.wasm?v=large-bicycle-2", {
     cache: "no-store",
   });
   if (!response.ok) {
@@ -57,7 +57,7 @@ async function load() {
   const bytes = await response.arrayBuffer();
   const module = await WebAssembly.instantiate(bytes, {});
   wasm = module.instance.exports;
-  if (wasm.layout_version?.() !== 1) {
+  if (wasm.layout_version?.() !== 2) {
     throw new Error("Old WASM loaded. Run make build on the Pi and hard refresh the page.");
   }
   wasm.new_game(newSeed());
@@ -162,7 +162,7 @@ function drawSlots() {
 
 function drawSlot(x, y, label) {
   ctx.save();
-  roundRect(x, y, CARD_W, CARD_H, 8);
+  roundRect(x, y, CARD_W, CARD_H, 10);
   ctx.fillStyle = "rgba(2, 18, 12, 0.16)";
   ctx.fill();
   ctx.strokeStyle = "rgba(246, 241, 223, 0.32)";
@@ -178,7 +178,7 @@ function drawSlot(x, y, label) {
 
   if (label) {
     ctx.fillStyle = "rgba(246, 241, 223, 0.5)";
-    ctx.font = label.length > 2 ? "700 12px Inter, system-ui" : "700 32px Georgia, serif";
+    ctx.font = label.length > 2 ? "700 13px Inter, system-ui" : "700 36px Georgia, serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(label, x + CARD_W / 2, y + CARD_H / 2);
@@ -259,7 +259,7 @@ function dragOffsetForCard() {
 function drawFace(x, y, rank, suit, selected) {
   ctx.save();
   drawCardShadow(x, y, selected);
-  roundRect(x, y, CARD_W, CARD_H, 8);
+  roundRect(x, y, CARD_W, CARD_H, 10);
   const paper = ctx.createLinearGradient(x, y, x + CARD_W, y + CARD_H);
   paper.addColorStop(0, "#fffdf5");
   paper.addColorStop(0.55, "#fbf2df");
@@ -271,13 +271,13 @@ function drawFace(x, y, rank, suit, selected) {
   ctx.lineWidth = selected ? 4 : 1.2;
   ctx.stroke();
 
-  roundRect(x + 5, y + 5, CARD_W - 10, CARD_H - 10, 5);
+  roundRect(x + 6, y + 6, CARD_W - 12, CARD_H - 12, 6);
   ctx.strokeStyle = "rgba(255, 255, 255, 0.62)";
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  drawCorner(x + 9, y + 10, rank, suit, 0);
-  drawCorner(x + CARD_W - 9, y + CARD_H - 10, rank, suit, Math.PI);
+  drawCorner(x + 11, y + 11, rank, suit, 0);
+  drawCorner(x + CARD_W - 11, y + CARD_H - 11, rank, suit, Math.PI);
   drawCardBody(x, y, rank, suit);
   ctx.restore();
 }
@@ -290,10 +290,10 @@ function drawCorner(x, y, rank, suit, rotation) {
   ctx.fillStyle = color;
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
-  ctx.font = "800 18px Georgia, serif";
+  ctx.font = "800 22px Georgia, serif";
   ctx.fillText(RANKS[rank], 0, 0);
-  ctx.font = "700 17px Georgia, serif";
-  ctx.fillText(SUITS[suit], 1, 20);
+  ctx.font = "700 21px Georgia, serif";
+  ctx.fillText(SUITS[suit], 1, 25);
   ctx.restore();
 }
 
@@ -305,7 +305,7 @@ function drawCardBody(x, y, rank, suit) {
 
   const layout = pipLayout(rank);
   for (const pip of layout) {
-    drawSuit(x + pip[0] * CARD_W, y + pip[1] * CARD_H, pip[2] || 24, suit, pip[3] || 0);
+    drawSuit(x + pip[0] * CARD_W, y + pip[1] * CARD_H, pip[2] || 30, suit, pip[3] || 0);
   }
 }
 
@@ -313,8 +313,8 @@ function drawCourtCard(x, y, rank, suit) {
   const color = suitColor(suit);
   const label = RANKS[rank];
   ctx.save();
-  roundRect(x + 22, y + 28, CARD_W - 44, CARD_H - 56, 8);
-  const badge = ctx.createLinearGradient(x + 22, y + 28, x + CARD_W - 22, y + CARD_H - 28);
+  roundRect(x + 27, y + 34, CARD_W - 54, CARD_H - 68, 10);
+  const badge = ctx.createLinearGradient(x + 27, y + 34, x + CARD_W - 27, y + CARD_H - 34);
   badge.addColorStop(0, "rgba(255, 255, 255, 0.42)");
   badge.addColorStop(1, "rgba(0, 0, 0, 0.08)");
   ctx.fillStyle = badge;
@@ -325,9 +325,9 @@ function drawCourtCard(x, y, rank, suit) {
   ctx.fillStyle = color;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = "800 36px Georgia, serif";
-  ctx.fillText(label, x + CARD_W / 2, y + CARD_H / 2 - 15);
-  drawSuit(x + CARD_W / 2, y + CARD_H / 2 + 22, 26, suit, 0);
+  ctx.font = "800 44px Georgia, serif";
+  ctx.fillText(label, x + CARD_W / 2, y + CARD_H / 2 - 18);
+  drawSuit(x + CARD_W / 2, y + CARD_H / 2 + 27, 32, suit, 0);
   ctx.restore();
 }
 
@@ -342,25 +342,25 @@ function pipLayout(rank) {
 
   switch (rank) {
     case 1:
-      return [[0.5, 0.5, 44]];
+      return [[0.5, 0.5, 56]];
     case 2:
-      return [[0.5, top], [0.5, bottom, 24, Math.PI]];
+      return [[0.5, top], [0.5, bottom, 30, Math.PI]];
     case 3:
-      return [[0.5, top], [0.5, mid], [0.5, bottom, 24, Math.PI]];
+      return [[0.5, top], [0.5, mid], [0.5, bottom, 30, Math.PI]];
     case 4:
-      return [[left, top], [right, top], [left, bottom, 24, Math.PI], [right, bottom, 24, Math.PI]];
+      return [[left, top], [right, top], [left, bottom, 30, Math.PI], [right, bottom, 30, Math.PI]];
     case 5:
-      return [[left, top], [right, top], [0.5, mid], [left, bottom, 24, Math.PI], [right, bottom, 24, Math.PI]];
+      return [[left, top], [right, top], [0.5, mid], [left, bottom, 30, Math.PI], [right, bottom, 30, Math.PI]];
     case 6:
-      return [[left, top], [right, top], [left, mid], [right, mid], [left, bottom, 24, Math.PI], [right, bottom, 24, Math.PI]];
+      return [[left, top], [right, top], [left, mid], [right, mid], [left, bottom, 30, Math.PI], [right, bottom, 30, Math.PI]];
     case 7:
-      return [[left, top], [right, top], [0.5, upper], [left, mid], [right, mid], [left, bottom, 24, Math.PI], [right, bottom, 24, Math.PI]];
+      return [[left, top], [right, top], [0.5, upper], [left, mid], [right, mid], [left, bottom, 30, Math.PI], [right, bottom, 30, Math.PI]];
     case 8:
-      return [[left, top], [right, top], [0.5, upper], [left, mid], [right, mid], [0.5, lower, 24, Math.PI], [left, bottom, 24, Math.PI], [right, bottom, 24, Math.PI]];
+      return [[left, top], [right, top], [0.5, upper], [left, mid], [right, mid], [0.5, lower, 30, Math.PI], [left, bottom, 30, Math.PI], [right, bottom, 30, Math.PI]];
     case 9:
-      return [[left, top], [right, top], [left, upper], [right, upper], [0.5, mid], [left, lower, 24, Math.PI], [right, lower, 24, Math.PI], [left, bottom, 24, Math.PI], [right, bottom, 24, Math.PI]];
+      return [[left, top], [right, top], [left, upper], [right, upper], [0.5, mid], [left, lower, 30, Math.PI], [right, lower, 30, Math.PI], [left, bottom, 30, Math.PI], [right, bottom, 30, Math.PI]];
     case 10:
-      return [[left, top], [right, top], [0.5, 0.34], [left, upper], [right, upper], [left, lower, 24, Math.PI], [right, lower, 24, Math.PI], [0.5, 0.66, 24, Math.PI], [left, bottom, 24, Math.PI], [right, bottom, 24, Math.PI]];
+      return [[left, top], [right, top], [0.5, 0.34], [left, upper], [right, upper], [left, lower, 30, Math.PI], [right, lower, 30, Math.PI], [0.5, 0.66, 30, Math.PI], [left, bottom, 30, Math.PI], [right, bottom, 30, Math.PI]];
     default:
       return [];
   }
@@ -385,44 +385,78 @@ function suitColor(suit) {
 function drawBack(x, y, selected) {
   ctx.save();
   drawCardShadow(x, y, selected);
-  roundRect(x, y, CARD_W, CARD_H, 8);
-  const back = ctx.createLinearGradient(x, y, x + CARD_W, y + CARD_H);
-  back.addColorStop(0, "#2d4e75");
-  back.addColorStop(0.45, "#263957");
-  back.addColorStop(1, "#142238");
-  ctx.fillStyle = back;
+  roundRect(x, y, CARD_W, CARD_H, 10);
+  ctx.fillStyle = "#f9f2dc";
   ctx.fill();
-  ctx.strokeStyle = selected ? GOLD : "rgba(255, 255, 255, 0.3)";
-  ctx.lineWidth = selected ? 4 : 1.2;
+  ctx.strokeStyle = selected ? GOLD : "rgba(35, 25, 14, 0.28)";
+  ctx.lineWidth = selected ? 4 : 1.4;
   ctx.stroke();
 
-  roundRect(x + 9, y + 9, CARD_W - 18, CARD_H - 18, 5);
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.38)";
-  ctx.lineWidth = 1.5;
+  roundRect(x + 7, y + 7, CARD_W - 14, CARD_H - 14, 8);
+  ctx.fillStyle = "#bf2634";
+  ctx.fill();
+  ctx.strokeStyle = "#8d1625";
+  ctx.lineWidth = 1.2;
   ctx.stroke();
 
   ctx.save();
   ctx.beginPath();
-  roundRect(x + 12, y + 12, CARD_W - 24, CARD_H - 24, 4);
+  roundRect(x + 13, y + 13, CARD_W - 26, CARD_H - 26, 5);
   ctx.clip();
-  ctx.fillStyle = "#d64b4f";
-  ctx.fillRect(x + 12, y + 12, CARD_W - 24, CARD_H - 24);
-  ctx.strokeStyle = "rgba(255, 245, 215, 0.5)";
-  ctx.lineWidth = 1.4;
-  for (let row = y + 14; row < y + CARD_H - 12; row += 13) {
-    for (let col = x + 12; col < x + CARD_W - 12; col += 13) {
+  ctx.fillStyle = "#d73542";
+  ctx.fillRect(x + 13, y + 13, CARD_W - 26, CARD_H - 26);
+
+  ctx.strokeStyle = "rgba(255, 244, 218, 0.58)";
+  ctx.lineWidth = 1.15;
+  for (let row = y + 15; row < y + CARD_H - 14; row += 12) {
+    for (let col = x + 15; col < x + CARD_W - 14; col += 12) {
       ctx.beginPath();
-      ctx.moveTo(col + 6, row);
-      ctx.lineTo(col + 12, row + 6);
-      ctx.lineTo(col + 6, row + 12);
-      ctx.lineTo(col, row + 6);
+      ctx.moveTo(col + 6, row + 1);
+      ctx.lineTo(col + 11, row + 6);
+      ctx.lineTo(col + 6, row + 11);
+      ctx.lineTo(col + 1, row + 6);
       ctx.closePath();
       ctx.stroke();
     }
   }
+
+  ctx.strokeStyle = "rgba(112, 18, 34, 0.45)";
+  ctx.lineWidth = 1;
+  for (let line = -CARD_H; line < CARD_W; line += 16) {
+    ctx.beginPath();
+    ctx.moveTo(x + 13 + line, y + 13);
+    ctx.lineTo(x + 13 + line + CARD_H, y + CARD_H - 13);
+    ctx.stroke();
+  }
   ctx.restore();
 
+  drawBackFlourishes(x, y);
   drawBackMedallion(x, y);
+  ctx.restore();
+}
+
+function drawBackFlourishes(x, y) {
+  ctx.save();
+  ctx.strokeStyle = "rgba(255, 245, 222, 0.9)";
+  ctx.lineWidth = 1.5;
+  roundRect(x + 15, y + 15, CARD_W - 30, CARD_H - 30, 4);
+  ctx.stroke();
+  roundRect(x + 21, y + 21, CARD_W - 42, CARD_H - 42, 3);
+  ctx.strokeStyle = "rgba(255, 245, 222, 0.55)";
+  ctx.stroke();
+
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      ctx.save();
+      ctx.translate(x + CARD_W / 2 + sx * 28, y + CARD_H / 2 + sy * 44);
+      ctx.scale(sx, sy);
+      ctx.beginPath();
+      ctx.arc(0, 0, 12, 0.15 * Math.PI, 1.15 * Math.PI);
+      ctx.arc(13, 0, 12, 1.15 * Math.PI, 0.15 * Math.PI, true);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
   ctx.restore();
 }
 
@@ -433,11 +467,16 @@ function drawBackMedallion(x, y) {
   ctx.strokeStyle = "rgba(35, 25, 14, 0.24)";
   ctx.lineWidth = 1.2;
   ctx.beginPath();
-  ctx.arc(0, 0, 18, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, 25, 31, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
-  ctx.fillStyle = "#263957";
-  ctx.font = "800 18px Georgia, serif";
+  ctx.strokeStyle = "#bf2634";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 17, 22, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = "#1d3155";
+  ctx.font = "800 24px Georgia, serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("\u2660", 0, 1);

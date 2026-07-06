@@ -1,14 +1,14 @@
 use std::cell::RefCell;
 
-const CARD_W: f64 = 82.0;
-const CARD_H: f64 = 118.0;
+const CARD_W: f64 = 104.0;
+const CARD_H: f64 = 150.0;
 const BOARD_W: f64 = 1100.0;
-const GAP: f64 = 22.0;
-const TOP: f64 = 34.0;
+const GAP: f64 = 18.0;
+const TOP: f64 = 30.0;
 const LEFT: f64 = 34.0;
-const TABLEAU_TOP: f64 = 188.0;
-const FACE_DOWN_STEP: f64 = 22.0;
-const FACE_UP_STEP: f64 = 34.0;
+const TABLEAU_TOP: f64 = 214.0;
+const FACE_DOWN_STEP: f64 = 25.0;
+const FACE_UP_STEP: f64 = 38.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Card {
@@ -546,7 +546,7 @@ pub extern "C" fn won() -> u8 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn layout_version() -> u32 {
-    1
+    2
 }
 
 fn render_card(idx: usize) -> Option<RenderCard> {
@@ -599,6 +599,6 @@ mod tests {
     #[test]
     fn tableau_uses_full_board_spread() {
         assert_eq!(tableau_x(0), LEFT);
-        assert!(tableau_x(6) > 980.0);
+        assert!(tableau_x(6) > 950.0);
     }
 }
