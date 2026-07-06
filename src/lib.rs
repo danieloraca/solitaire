@@ -1,0 +1,588 @@
+use std::cell::RefCell;
+
+const CARD_W: f64 = 82.0;
+const CARD_H: f64 = 118.0;
+const GAP: f64 = 22.0;
+const TOP: f64 = 34.0;
+const LEFT: f64 = 34.0;
+const TABLEAU_TOP: f64 = 188.0;
+const FACE_DOWN_STEP: f64 = 22.0;
+const FACE_UP_STEP: f64 = 34.0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Card {
+    suit: u8,
+    rank: u8,
+    face_up: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Location {
+    Waste,
+    Foundation(usize),
+    Tableau(usize, usize),
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Selection {
+    loc: Location,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RenderCard {
+    x: f64,
+    y: f64,
+    rank: u8,
+    suit: u8,
+    face_up: bool,
+    selected: bool,
+}
+
+#[derive(Debug)]
+struct Game {
+    stock: Vec<Card>,
+    waste: Vec<Card>,
+    foundations: [Vec<Card>; 4],
+    tableau: [Vec<Card>; 7],
+    selected: Option<Selection>,
+    moves: u32,
+}
+
+impl Game {
+    fn new(seed: u32) -> Self {
+        let mut deck = shuffled_deck(seed);
+        let mut tableau: [Vec<Card>; 7] = std::array::from_fn(|_| Vec::new());
+
+        for pile_idx in 0..7 {
+            for card_idx in 0..=pile_idx {
+                let mut card = deck.pop().expect("deck has enough cards");
+                card.face_up = card_idx == pile_idx;
+                tableau[pile_idx].push(card);
+            }
+        }
+
+        Self {
+            stock: deck,
+            waste: Vec::new(),
+            foundations: std::array::from_fn(|_| Vec::new()),
+            tableau,
+            selected: None,
+            moves: 0,
+        }
+    }
+
+    fn click(&mut self, x: f64, y: f64) {
+        if self.won() {
+            self.selected = None;
+            return;
+        }
+
+        if point_in_rect(x, y, stock_x(), TOP, CARD_W, CARD_H) {
+            self.selected = None;
+            self.draw_stock();
+            return;
+        }
+
+        if let Some(target) = self.hit_location(x, y) {
+            if let Some(selection) = self.selected {
+                if selection.loc == target {
+                    self.selected = None;
+                    return;
+                }
+
+                if self.try_move(selection.loc, target) {
+                    self.selected = None;
+                    self.flip_open_tableau_cards();
+                    return;
+                }
+            }
+
+            self.selected = self
+                .selectable_location(target)
+                .map(|loc| Selection { loc });
+            return;
+        }
+
+        if let Some(selection) = self.selected {
+            if self.try_move_to_empty_foundation(selection.loc, x, y)
+                || self.try_move_to_empty_tableau(selection.loc, x, y)
+            {
+                self.selected = None;
+                self.flip_open_tableau_cards();
+                return;
+            }
+        }
+
+        self.selected = None;
+    }
+
+    fn draw_stock(&mut self) {
+        if let Some(mut card) = self.stock.pop() {
+            card.face_up = true;
+            self.waste.push(card);
+            self.moves += 1;
+            return;
+        }
+
+        if self.waste.is_empty() {
+            return;
+        }
+
+        while let Some(mut card) = self.waste.pop() {
+            card.face_up = false;
+            self.stock.push(card);
+        }
+        self.moves += 1;
+    }
+
+    fn hit_location(&self, x: f64, y: f64) -> Option<Location> {
+        for pile_idx in (0..7).rev() {
+            let pile = &self.tableau[pile_idx];
+            for card_idx in (0..pile.len()).rev() {
+                let (card_x, card_y) = tableau_card_pos(pile, pile_idx, card_idx);
+                let hit_h = if card_idx + 1 == pile.len() {
+                    CARD_H
+                } else if pile[card_idx].face_up {
+                    FACE_UP_STEP
+                } else {
+                    FACE_DOWN_STEP
+                };
+
+                if point_in_rect(x, y, card_x, card_y, CARD_W, hit_h) {
+                    return Some(Location::Tableau(pile_idx, card_idx));
+                }
+            }
+        }
+
+        if point_in_rect(x, y, waste_x(), TOP, CARD_W, CARD_H) && !self.waste.is_empty() {
+            return Some(Location::Waste);
+        }
+
+        for idx in 0..4 {
+            if point_in_rect(x, y, foundation_x(idx), TOP, CARD_W, CARD_H)
+                && !self.foundations[idx].is_empty()
+            {
+                return Some(Location::Foundation(idx));
+            }
+        }
+
+        None
+    }
+
+    fn selectable_location(&mut self, loc: Location) -> Option<Location> {
+        match loc {
+            Location::Waste => self.waste.last().map(|_| loc),
+            Location::Foundation(idx) => self.foundations[idx].last().map(|_| loc),
+            Location::Tableau(pile_idx, card_idx) => {
+                let pile = &mut self.tableau[pile_idx];
+                let is_top_card = card_idx + 1 == pile.len();
+                let card = pile.get_mut(card_idx)?;
+
+                if !card.face_up {
+                    if is_top_card {
+                        card.face_up = true;
+                        self.moves += 1;
+                    }
+                    return None;
+                }
+
+                Some(loc)
+            }
+        }
+    }
+
+    fn try_move(&mut self, source: Location, target: Location) -> bool {
+        match target {
+            Location::Foundation(idx) => self.try_move_to_foundation(source, idx),
+            Location::Tableau(idx, _) => self.try_move_to_tableau(source, idx),
+            Location::Waste => false,
+        }
+    }
+
+    fn try_move_to_empty_foundation(&mut self, source: Location, x: f64, y: f64) -> bool {
+        for idx in 0..4 {
+            if self.foundations[idx].is_empty()
+                && point_in_rect(x, y, foundation_x(idx), TOP, CARD_W, CARD_H)
+            {
+                return self.try_move_to_foundation(source, idx);
+            }
+        }
+        false
+    }
+
+    fn try_move_to_empty_tableau(&mut self, source: Location, x: f64, y: f64) -> bool {
+        for idx in 0..7 {
+            if self.tableau[idx].is_empty()
+                && point_in_rect(x, y, tableau_x(idx), TABLEAU_TOP, CARD_W, CARD_H)
+            {
+                return self.try_move_to_tableau(source, idx);
+            }
+        }
+        false
+    }
+
+    fn try_move_to_foundation(&mut self, source: Location, foundation_idx: usize) -> bool {
+        let Some(card) = self.source_top_card(source) else {
+            return false;
+        };
+
+        if !can_place_on_foundation(card, &self.foundations[foundation_idx]) {
+            return false;
+        }
+
+        let moved = self.take_cards(source);
+        self.foundations[foundation_idx].extend(moved);
+        self.moves += 1;
+        true
+    }
+
+    fn try_move_to_tableau(&mut self, source: Location, pile_idx: usize) -> bool {
+        let moving = self.source_first_card(source);
+        let Some(card) = moving else {
+            return false;
+        };
+
+        if matches!(source, Location::Tableau(idx, _) if idx == pile_idx) {
+            return false;
+        }
+
+        if !can_place_on_tableau(card, &self.tableau[pile_idx]) {
+            return false;
+        }
+
+        let moved = self.take_cards(source);
+        self.tableau[pile_idx].extend(moved);
+        self.moves += 1;
+        true
+    }
+
+    fn source_top_card(&self, loc: Location) -> Option<Card> {
+        match loc {
+            Location::Waste => self.waste.last().copied(),
+            Location::Foundation(idx) => self.foundations[idx].last().copied(),
+            Location::Tableau(pile_idx, card_idx) => {
+                let pile = &self.tableau[pile_idx];
+                if card_idx + 1 == pile.len() {
+                    pile.get(card_idx).copied()
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    fn source_first_card(&self, loc: Location) -> Option<Card> {
+        match loc {
+            Location::Waste => self.waste.last().copied(),
+            Location::Foundation(idx) => self.foundations[idx].last().copied(),
+            Location::Tableau(pile_idx, card_idx) => self.tableau[pile_idx].get(card_idx).copied(),
+        }
+    }
+
+    fn take_cards(&mut self, loc: Location) -> Vec<Card> {
+        match loc {
+            Location::Waste => self.waste.pop().into_iter().collect(),
+            Location::Foundation(idx) => self.foundations[idx].pop().into_iter().collect(),
+            Location::Tableau(pile_idx, card_idx) => self.tableau[pile_idx].split_off(card_idx),
+        }
+    }
+
+    fn flip_open_tableau_cards(&mut self) {
+        for pile in &mut self.tableau {
+            if let Some(card) = pile.last_mut() {
+                card.face_up = true;
+            }
+        }
+    }
+
+    fn render_cards(&self) -> Vec<RenderCard> {
+        let mut cards = Vec::with_capacity(52);
+
+        if let Some(card) = self.waste.last() {
+            cards.push(RenderCard {
+                x: waste_x(),
+                y: TOP,
+                rank: card.rank,
+                suit: card.suit,
+                face_up: true,
+                selected: self.is_selected(Location::Waste),
+            });
+        }
+
+        for idx in 0..4 {
+            if let Some(card) = self.foundations[idx].last() {
+                cards.push(RenderCard {
+                    x: foundation_x(idx),
+                    y: TOP,
+                    rank: card.rank,
+                    suit: card.suit,
+                    face_up: true,
+                    selected: self.is_selected(Location::Foundation(idx)),
+                });
+            }
+        }
+
+        for pile_idx in 0..7 {
+            let pile = &self.tableau[pile_idx];
+            for card_idx in 0..pile.len() {
+                let card = pile[card_idx];
+                let (x, y) = tableau_card_pos(pile, pile_idx, card_idx);
+                cards.push(RenderCard {
+                    x,
+                    y,
+                    rank: card.rank,
+                    suit: card.suit,
+                    face_up: card.face_up,
+                    selected: self.is_selected(Location::Tableau(pile_idx, card_idx)),
+                });
+            }
+        }
+
+        cards
+    }
+
+    fn is_selected(&self, loc: Location) -> bool {
+        let Some(selection) = self.selected else {
+            return false;
+        };
+
+        match (selection.loc, loc) {
+            (Location::Waste, Location::Waste) => true,
+            (Location::Foundation(a), Location::Foundation(b)) => a == b,
+            (Location::Tableau(a_pile, a_idx), Location::Tableau(b_pile, b_idx)) => {
+                a_pile == b_pile && b_idx >= a_idx
+            }
+            _ => false,
+        }
+    }
+
+    fn won(&self) -> bool {
+        self.foundations.iter().all(|pile| pile.len() == 13)
+    }
+}
+
+fn shuffled_deck(seed: u32) -> Vec<Card> {
+    let mut deck = Vec::with_capacity(52);
+    for suit in 0..4 {
+        for rank in 1..=13 {
+            deck.push(Card {
+                suit,
+                rank,
+                face_up: false,
+            });
+        }
+    }
+
+    let mut rng = XorShift32::new(seed);
+    for idx in (1..deck.len()).rev() {
+        let swap_idx = (rng.next() as usize) % (idx + 1);
+        deck.swap(idx, swap_idx);
+    }
+    deck
+}
+
+#[derive(Debug)]
+struct XorShift32 {
+    state: u32,
+}
+
+impl XorShift32 {
+    fn new(seed: u32) -> Self {
+        Self {
+            state: if seed == 0 { 0x9e37_79b9 } else { seed },
+        }
+    }
+
+    fn next(&mut self) -> u32 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.state = x;
+        x
+    }
+}
+
+fn can_place_on_foundation(card: Card, foundation: &[Card]) -> bool {
+    match foundation.last() {
+        None => card.rank == 1,
+        Some(top) => top.suit == card.suit && top.rank + 1 == card.rank,
+    }
+}
+
+fn can_place_on_tableau(card: Card, pile: &[Card]) -> bool {
+    match pile.last() {
+        None => card.rank == 13,
+        Some(top) => {
+            top.face_up && is_red(top.suit) != is_red(card.suit) && top.rank == card.rank + 1
+        }
+    }
+}
+
+fn is_red(suit: u8) -> bool {
+    suit == 1 || suit == 2
+}
+
+fn point_in_rect(px: f64, py: f64, x: f64, y: f64, w: f64, h: f64) -> bool {
+    px >= x && px <= x + w && py >= y && py <= y + h
+}
+
+fn stock_x() -> f64 {
+    LEFT
+}
+
+fn waste_x() -> f64 {
+    LEFT + CARD_W + GAP
+}
+
+fn foundation_x(idx: usize) -> f64 {
+    LEFT + (CARD_W + GAP) * (3.0 + idx as f64)
+}
+
+fn tableau_x(idx: usize) -> f64 {
+    LEFT + (CARD_W + GAP) * idx as f64
+}
+
+fn tableau_card_pos(pile: &[Card], pile_idx: usize, card_idx: usize) -> (f64, f64) {
+    let mut y = TABLEAU_TOP;
+    for card in pile.iter().take(card_idx) {
+        y += if card.face_up {
+            FACE_UP_STEP
+        } else {
+            FACE_DOWN_STEP
+        };
+    }
+    (tableau_x(pile_idx), y)
+}
+
+thread_local! {
+    static GAME: RefCell<Game> = RefCell::new(Game::new(1));
+    static RENDER: RefCell<Vec<RenderCard>> = const { RefCell::new(Vec::new()) };
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn new_game(seed: u32) {
+    GAME.with(|game| {
+        *game.borrow_mut() = Game::new(seed);
+    });
+    sync_render();
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn click(x: f64, y: f64) {
+    GAME.with(|game| {
+        game.borrow_mut().click(x, y);
+    });
+    sync_render();
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn sync_render() {
+    let cards = GAME.with(|game| game.borrow().render_cards());
+    RENDER.with(|render| {
+        *render.borrow_mut() = cards;
+    });
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn render_count() -> usize {
+    RENDER.with(|render| render.borrow().len())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn card_x(idx: usize) -> f64 {
+    render_card(idx).map_or(0.0, |card| card.x)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn card_y(idx: usize) -> f64 {
+    render_card(idx).map_or(0.0, |card| card.y)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn card_rank(idx: usize) -> u8 {
+    render_card(idx).map_or(0, |card| card.rank)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn card_suit(idx: usize) -> u8 {
+    render_card(idx).map_or(0, |card| card.suit)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn card_face_up(idx: usize) -> u8 {
+    render_card(idx).map_or(0, |card| u8::from(card.face_up))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn card_selected(idx: usize) -> u8 {
+    render_card(idx).map_or(0, |card| u8::from(card.selected))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn stock_count() -> usize {
+    GAME.with(|game| game.borrow().stock.len())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn waste_count() -> usize {
+    GAME.with(|game| game.borrow().waste.len())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moves_count() -> u32 {
+    GAME.with(|game| game.borrow().moves)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn won() -> u8 {
+    GAME.with(|game| u8::from(game.borrow().won()))
+}
+
+fn render_card(idx: usize) -> Option<RenderCard> {
+    RENDER.with(|render| render.borrow().get(idx).copied())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_game_deals_expected_visible_cards() {
+        let game = Game::new(42);
+        assert_eq!(game.stock.len(), 24);
+        assert_eq!(game.tableau.iter().map(Vec::len).sum::<usize>(), 28);
+        assert_eq!(
+            game.tableau
+                .iter()
+                .filter(|pile| pile.last().is_some_and(|card| card.face_up))
+                .count(),
+            7
+        );
+    }
+
+    #[test]
+    fn stock_click_deals_to_waste() {
+        let mut game = Game::new(42);
+        game.click(stock_x() + 4.0, TOP + 4.0);
+        assert_eq!(game.stock.len(), 23);
+        assert_eq!(game.waste.len(), 1);
+        assert!(game.waste.last().unwrap().face_up);
+    }
+
+    #[test]
+    fn only_kings_can_move_to_empty_tableau() {
+        let ace = Card {
+            suit: 0,
+            rank: 1,
+            face_up: true,
+        };
+        let king = Card {
+            suit: 1,
+            rank: 13,
+            face_up: true,
+        };
+        assert!(!can_place_on_tableau(ace, &[]));
+        assert!(can_place_on_tableau(king, &[]));
+    }
+}

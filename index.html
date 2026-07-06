@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rust Solitaire</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="bar">
+        <div>
+          <h1>Rust Solitaire</h1>
+          <p id="status">Loading WASM...</p>
+        </div>
+        <button id="new-game" type="button" aria-label="Start a new shuffled game">
+          New Game
+        </button>
+      </header>
+      <canvas id="game" width="1100" height="720" aria-label="Klondike solitaire board"></canvas>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
