@@ -13,6 +13,9 @@ const GAP = 22;
 const TABLEAU_TOP = 188;
 const SUITS = ["\u2660", "\u2665", "\u2666", "\u2663"];
 const RANKS = ["", "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+const FELT_LIGHT = "#23845b";
+const FELT_DARK = "#0b3829";
+const GOLD = "#f2d36b";
 
 let wasm = null;
 let drag = null;
@@ -62,22 +65,41 @@ function draw() {
 function drawFelt() {
   ctx.clearRect(0, 0, W, H);
   const felt = ctx.createLinearGradient(0, 0, W, H);
-  felt.addColorStop(0, "#1c8157");
-  felt.addColorStop(0.58, "#105f41");
-  felt.addColorStop(1, "#0f422f");
+  felt.addColorStop(0, FELT_LIGHT);
+  felt.addColorStop(0.55, "#115f43");
+  felt.addColorStop(1, FELT_DARK);
   ctx.fillStyle = felt;
   ctx.fillRect(0, 0, W, H);
 
   ctx.save();
-  ctx.globalAlpha = 0.09;
-  ctx.strokeStyle = "#f5e7b0";
+  ctx.globalAlpha = 0.075;
+  ctx.strokeStyle = "#f7e8b6";
   ctx.lineWidth = 1;
-  for (let x = -H; x < W; x += 28) {
+  for (let x = -H; x < W; x += 24) {
     ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x + H, H);
     ctx.stroke();
   }
+  ctx.globalAlpha = 0.05;
+  for (let y = 0; y < H; y += 18) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y + 28);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 0.34;
+  const glow = ctx.createRadialGradient(W * 0.48, H * 0.22, 80, W * 0.48, H * 0.22, 620);
+  glow.addColorStop(0, "rgba(255, 242, 183, 0.24)");
+  glow.addColorStop(0.45, "rgba(255, 242, 183, 0.06)");
+  glow.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+  const vignette = ctx.createRadialGradient(W / 2, H / 2, 250, W / 2, H / 2, 720);
+  vignette.addColorStop(0, "rgba(0, 0, 0, 0)");
+  vignette.addColorStop(1, "rgba(0, 0, 0, 0.36)");
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, W, H);
   ctx.restore();
 }
 
@@ -99,16 +121,21 @@ function drawSlots() {
 function drawSlot(x, y, label) {
   ctx.save();
   roundRect(x, y, CARD_W, CARD_H, 8);
-  ctx.fillStyle = "rgba(0, 0, 0, 0.12)";
+  ctx.fillStyle = "rgba(2, 18, 12, 0.16)";
   ctx.fill();
-  ctx.strokeStyle = "rgba(246, 241, 223, 0.34)";
+  ctx.strokeStyle = "rgba(246, 241, 223, 0.32)";
   ctx.setLineDash([8, 8]);
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.setLineDash([]);
 
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.18)";
+  ctx.lineWidth = 1;
+  roundRect(x + 4, y + 4, CARD_W - 8, CARD_H - 8, 6);
+  ctx.stroke();
+
   if (label) {
-    ctx.fillStyle = "rgba(246, 241, 223, 0.54)";
+    ctx.fillStyle = "rgba(246, 241, 223, 0.5)";
     ctx.font = label.length > 2 ? "700 12px Inter, system-ui" : "700 32px Georgia, serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -145,68 +172,194 @@ function drawFace(x, y, rank, suit, selected) {
   ctx.save();
   drawCardShadow(x, y, selected);
   roundRect(x, y, CARD_W, CARD_H, 8);
-  ctx.fillStyle = "#fffaf0";
+  const paper = ctx.createLinearGradient(x, y, x + CARD_W, y + CARD_H);
+  paper.addColorStop(0, "#fffdf5");
+  paper.addColorStop(0.55, "#fbf2df");
+  paper.addColorStop(1, "#eadcc2");
+  ctx.fillStyle = paper;
   ctx.fill();
-  ctx.strokeStyle = selected ? "#f9d75e" : "rgba(31, 23, 12, 0.22)";
-  ctx.lineWidth = selected ? 4 : 1.4;
+
+  ctx.strokeStyle = selected ? GOLD : "rgba(42, 31, 17, 0.24)";
+  ctx.lineWidth = selected ? 4 : 1.2;
   ctx.stroke();
 
-  const red = suit === 1 || suit === 2;
-  ctx.fillStyle = red ? "#c73535" : "#1f2530";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-  ctx.font = "800 22px Georgia, serif";
-  ctx.fillText(RANKS[rank], x + 10, y + 28);
-  ctx.font = "700 22px Georgia, serif";
-  ctx.fillText(SUITS[suit], x + 10, y + 52);
+  roundRect(x + 5, y + 5, CARD_W - 10, CARD_H - 10, 5);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.62)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
 
+  drawCorner(x + 9, y + 10, rank, suit, 0);
+  drawCorner(x + CARD_W - 9, y + CARD_H - 10, rank, suit, Math.PI);
+  drawCardBody(x, y, rank, suit);
+  ctx.restore();
+}
+
+function drawCorner(x, y, rank, suit, rotation) {
+  const color = suitColor(suit);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+  ctx.fillStyle = color;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.font = "800 18px Georgia, serif";
+  ctx.fillText(RANKS[rank], 0, 0);
+  ctx.font = "700 17px Georgia, serif";
+  ctx.fillText(SUITS[suit], 1, 20);
+  ctx.restore();
+}
+
+function drawCardBody(x, y, rank, suit) {
+  if (rank > 10) {
+    drawCourtCard(x, y, rank, suit);
+    return;
+  }
+
+  const layout = pipLayout(rank);
+  for (const pip of layout) {
+    drawSuit(x + pip[0] * CARD_W, y + pip[1] * CARD_H, pip[2] || 24, suit, pip[3] || 0);
+  }
+}
+
+function drawCourtCard(x, y, rank, suit) {
+  const color = suitColor(suit);
+  const label = RANKS[rank];
+  ctx.save();
+  roundRect(x + 22, y + 28, CARD_W - 44, CARD_H - 56, 8);
+  const badge = ctx.createLinearGradient(x + 22, y + 28, x + CARD_W - 22, y + CARD_H - 28);
+  badge.addColorStop(0, "rgba(255, 255, 255, 0.42)");
+  badge.addColorStop(1, "rgba(0, 0, 0, 0.08)");
+  ctx.fillStyle = badge;
+  ctx.fill();
+  ctx.strokeStyle = "rgba(42, 31, 17, 0.18)";
+  ctx.stroke();
+
+  ctx.fillStyle = color;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = "700 46px Georgia, serif";
-  ctx.fillText(SUITS[suit], x + CARD_W / 2, y + CARD_H / 2 + 8);
-
-  ctx.translate(x + CARD_W, y + CARD_H);
-  ctx.rotate(Math.PI);
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-  ctx.font = "800 22px Georgia, serif";
-  ctx.fillText(RANKS[rank], 10, 28);
-  ctx.font = "700 22px Georgia, serif";
-  ctx.fillText(SUITS[suit], 10, 52);
+  ctx.font = "800 36px Georgia, serif";
+  ctx.fillText(label, x + CARD_W / 2, y + CARD_H / 2 - 15);
+  drawSuit(x + CARD_W / 2, y + CARD_H / 2 + 22, 26, suit, 0);
   ctx.restore();
+}
+
+function pipLayout(rank) {
+  const left = 0.34;
+  const right = 0.66;
+  const top = 0.28;
+  const upper = 0.38;
+  const mid = 0.5;
+  const lower = 0.62;
+  const bottom = 0.72;
+
+  switch (rank) {
+    case 1:
+      return [[0.5, 0.5, 44]];
+    case 2:
+      return [[0.5, top], [0.5, bottom, 24, Math.PI]];
+    case 3:
+      return [[0.5, top], [0.5, mid], [0.5, bottom, 24, Math.PI]];
+    case 4:
+      return [[left, top], [right, top], [left, bottom, 24, Math.PI], [right, bottom, 24, Math.PI]];
+    case 5:
+      return [[left, top], [right, top], [0.5, mid], [left, bottom, 24, Math.PI], [right, bottom, 24, Math.PI]];
+    case 6:
+      return [[left, top], [right, top], [left, mid], [right, mid], [left, bottom, 24, Math.PI], [right, bottom, 24, Math.PI]];
+    case 7:
+      return [[left, top], [right, top], [0.5, upper], [left, mid], [right, mid], [left, bottom, 24, Math.PI], [right, bottom, 24, Math.PI]];
+    case 8:
+      return [[left, top], [right, top], [0.5, upper], [left, mid], [right, mid], [0.5, lower, 24, Math.PI], [left, bottom, 24, Math.PI], [right, bottom, 24, Math.PI]];
+    case 9:
+      return [[left, top], [right, top], [left, upper], [right, upper], [0.5, mid], [left, lower, 24, Math.PI], [right, lower, 24, Math.PI], [left, bottom, 24, Math.PI], [right, bottom, 24, Math.PI]];
+    case 10:
+      return [[left, top], [right, top], [0.5, 0.34], [left, upper], [right, upper], [left, lower, 24, Math.PI], [right, lower, 24, Math.PI], [0.5, 0.66, 24, Math.PI], [left, bottom, 24, Math.PI], [right, bottom, 24, Math.PI]];
+    default:
+      return [];
+  }
+}
+
+function drawSuit(cx, cy, size, suit, rotation) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rotation);
+  ctx.fillStyle = suitColor(suit);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `700 ${size}px Georgia, serif`;
+  ctx.fillText(SUITS[suit], 0, 2);
+  ctx.restore();
+}
+
+function suitColor(suit) {
+  return suit === 1 || suit === 2 ? "#bd2d32" : "#161d27";
 }
 
 function drawBack(x, y, selected) {
   ctx.save();
   drawCardShadow(x, y, selected);
   roundRect(x, y, CARD_W, CARD_H, 8);
-  ctx.fillStyle = "#263957";
+  const back = ctx.createLinearGradient(x, y, x + CARD_W, y + CARD_H);
+  back.addColorStop(0, "#2d4e75");
+  back.addColorStop(0.45, "#263957");
+  back.addColorStop(1, "#142238");
+  ctx.fillStyle = back;
   ctx.fill();
-  ctx.strokeStyle = selected ? "#f9d75e" : "rgba(255, 255, 255, 0.28)";
+  ctx.strokeStyle = selected ? GOLD : "rgba(255, 255, 255, 0.3)";
   ctx.lineWidth = selected ? 4 : 1.2;
   ctx.stroke();
 
-  roundRect(x + 10, y + 10, CARD_W - 20, CARD_H - 20, 5);
-  ctx.fillStyle = "#d84f4f";
-  ctx.fill();
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+  roundRect(x + 9, y + 9, CARD_W - 18, CARD_H - 18, 5);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.38)";
+  ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  ctx.strokeStyle = "rgba(255, 246, 216, 0.5)";
-  ctx.lineWidth = 2;
-  for (let line = -CARD_H; line < CARD_W; line += 14) {
-    ctx.beginPath();
-    ctx.moveTo(x + 10 + line, y + 10);
-    ctx.lineTo(x + 10 + line + CARD_H, y + CARD_H - 10);
-    ctx.stroke();
+  ctx.save();
+  ctx.beginPath();
+  roundRect(x + 12, y + 12, CARD_W - 24, CARD_H - 24, 4);
+  ctx.clip();
+  ctx.fillStyle = "#d64b4f";
+  ctx.fillRect(x + 12, y + 12, CARD_W - 24, CARD_H - 24);
+  ctx.strokeStyle = "rgba(255, 245, 215, 0.5)";
+  ctx.lineWidth = 1.4;
+  for (let row = y + 14; row < y + CARD_H - 12; row += 13) {
+    for (let col = x + 12; col < x + CARD_W - 12; col += 13) {
+      ctx.beginPath();
+      ctx.moveTo(col + 6, row);
+      ctx.lineTo(col + 12, row + 6);
+      ctx.lineTo(col + 6, row + 12);
+      ctx.lineTo(col, row + 6);
+      ctx.closePath();
+      ctx.stroke();
+    }
   }
+  ctx.restore();
+
+  drawBackMedallion(x, y);
+  ctx.restore();
+}
+
+function drawBackMedallion(x, y) {
+  ctx.save();
+  ctx.translate(x + CARD_W / 2, y + CARD_H / 2);
+  ctx.fillStyle = "rgba(255, 245, 215, 0.86)";
+  ctx.strokeStyle = "rgba(35, 25, 14, 0.24)";
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.arc(0, 0, 18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#263957";
+  ctx.font = "800 18px Georgia, serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("\u2660", 0, 1);
   ctx.restore();
 }
 
 function drawCardShadow(x, y, selected) {
-  ctx.shadowColor = selected ? "rgba(249, 215, 94, 0.45)" : "rgba(0, 0, 0, 0.3)";
-  ctx.shadowBlur = selected ? 16 : 12;
-  ctx.shadowOffsetY = selected ? 2 : 7;
+  ctx.shadowColor = selected ? "rgba(242, 211, 107, 0.5)" : "rgba(0, 0, 0, 0.34)";
+  ctx.shadowBlur = selected ? 18 : 13;
+  ctx.shadowOffsetY = selected ? 4 : 8;
 }
 
 function drawHud() {
