@@ -1,5 +1,5 @@
 const canvas = document.querySelector("#game");
-const ctx = canvas.getContext("2d");
+let ctx = canvas.getContext("2d");
 const statusEl = document.querySelector("#status");
 const newGameButton = document.querySelector("#new-game");
 
@@ -7,6 +7,7 @@ const W = 1100;
 const H = 720;
 const CARD_W = 82;
 const CARD_H = 118;
+const CARD_PAD = 24;
 const TOP = 34;
 const LEFT = 34;
 const GAP = 22;
@@ -20,6 +21,8 @@ const GOLD = "#f2d36b";
 let wasm = null;
 let drag = null;
 let drawQueued = false;
+let feltSprite = null;
+const cardSpriteCache = new Map();
 
 function foundationX(index) {
   return W - LEFT - (4 - index) * (CARD_W + GAP);
@@ -81,6 +84,27 @@ function draw() {
 }
 
 function drawFelt() {
+  if (!feltSprite) {
+    feltSprite = buildFeltSprite();
+  }
+
+  ctx.drawImage(feltSprite, 0, 0);
+}
+
+function buildFeltSprite() {
+  const sprite = document.createElement("canvas");
+  sprite.width = W;
+  sprite.height = H;
+
+  const mainCtx = ctx;
+  ctx = sprite.getContext("2d");
+  drawFeltArt();
+  ctx = mainCtx;
+
+  return sprite;
+}
+
+function drawFeltArt() {
   ctx.clearRect(0, 0, W, H);
   const felt = ctx.createLinearGradient(0, 0, W, H);
   felt.addColorStop(0, FELT_LIGHT);
@@ -132,7 +156,7 @@ function drawSlots() {
   }
 
   if (wasm.stock_count() > 0) {
-    drawBack(stockX(), TOP, false);
+    drawCardSprite(stockX(), TOP, false, 0, 0, false);
   }
 }
 
@@ -171,12 +195,40 @@ function drawCards() {
     const y = wasm.card_y(i) + dragOffset.y;
     const faceUp = wasm.card_face_up(i) === 1;
 
-    if (faceUp) {
-      drawFace(x, y, wasm.card_rank(i), wasm.card_suit(i), selected);
-    } else {
-      drawBack(x, y, selected);
-    }
+    drawCardSprite(x, y, faceUp, wasm.card_rank(i), wasm.card_suit(i), selected);
   }
+}
+
+function drawCardSprite(x, y, faceUp, rank, suit, selected) {
+  const sprite = getCardSprite(faceUp, rank, suit, selected);
+  ctx.drawImage(sprite, x - CARD_PAD, y - CARD_PAD);
+}
+
+function getCardSprite(faceUp, rank, suit, selected) {
+  const key = `${faceUp ? "f" : "b"}:${rank}:${suit}:${selected ? "s" : "n"}`;
+  const cached = cardSpriteCache.get(key);
+  if (cached) {
+    return cached;
+  }
+
+  const sprite = document.createElement("canvas");
+  sprite.width = CARD_W + CARD_PAD * 2;
+  sprite.height = CARD_H + CARD_PAD * 2;
+
+  const mainCtx = ctx;
+  ctx = sprite.getContext("2d");
+  ctx.save();
+  ctx.translate(CARD_PAD, CARD_PAD);
+  if (faceUp) {
+    drawFace(0, 0, rank, suit, selected);
+  } else {
+    drawBack(0, 0, selected);
+  }
+  ctx.restore();
+  ctx = mainCtx;
+
+  cardSpriteCache.set(key, sprite);
+  return sprite;
 }
 
 function dragOffsetForCard() {
