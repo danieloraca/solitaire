@@ -45,13 +45,18 @@ function newSeed() {
 }
 
 async function load() {
-  const response = await fetch("./dist/solitaire.wasm");
+  const response = await fetch("./dist/solitaire.wasm?v=wide-layout-1", {
+    cache: "no-store",
+  });
   if (!response.ok) {
     throw new Error("Build the WASM first: make build");
   }
   const bytes = await response.arrayBuffer();
   const module = await WebAssembly.instantiate(bytes, {});
   wasm = module.instance.exports;
+  if (wasm.layout_version?.() !== 1) {
+    throw new Error("Old WASM loaded. Run make build on the Pi and hard refresh the page.");
+  }
   wasm.new_game(newSeed());
   scheduleDraw();
 }

@@ -544,6 +544,11 @@ pub extern "C" fn won() -> u8 {
     GAME.with(|game| u8::from(game.borrow().won()))
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn layout_version() -> u32 {
+    1
+}
+
 fn render_card(idx: usize) -> Option<RenderCard> {
     RENDER.with(|render| render.borrow().get(idx).copied())
 }
@@ -589,5 +594,11 @@ mod tests {
         };
         assert!(!can_place_on_tableau(ace, &[]));
         assert!(can_place_on_tableau(king, &[]));
+    }
+
+    #[test]
+    fn tableau_uses_full_board_spread() {
+        assert_eq!(tableau_x(0), LEFT);
+        assert!(tableau_x(6) > 980.0);
     }
 }
