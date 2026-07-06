@@ -2,6 +2,7 @@ use std::cell::RefCell;
 
 const CARD_W: f64 = 82.0;
 const CARD_H: f64 = 118.0;
+const BOARD_W: f64 = 1100.0;
 const GAP: f64 = 22.0;
 const TOP: f64 = 34.0;
 const LEFT: f64 = 34.0;
@@ -436,11 +437,15 @@ fn waste_x() -> f64 {
 }
 
 fn foundation_x(idx: usize) -> f64 {
-    LEFT + (CARD_W + GAP) * (3.0 + idx as f64)
+    BOARD_W - LEFT - (4.0 - idx as f64) * (CARD_W + GAP)
 }
 
 fn tableau_x(idx: usize) -> f64 {
-    LEFT + (CARD_W + GAP) * idx as f64
+    LEFT + tableau_spread() * idx as f64
+}
+
+fn tableau_spread() -> f64 {
+    (BOARD_W - LEFT * 2.0 - CARD_W) / 6.0
 }
 
 fn tableau_card_pos(pile: &[Card], pile_idx: usize, card_idx: usize) -> (f64, f64) {

@@ -22,11 +22,12 @@ let drag = null;
 let drawQueued = false;
 
 function foundationX(index) {
-  return LEFT + (CARD_W + GAP) * (3 + index);
+  return W - LEFT - (4 - index) * (CARD_W + GAP);
 }
 
 function tableauX(index) {
-  return LEFT + (CARD_W + GAP) * index;
+  const spread = (W - LEFT * 2 - CARD_W) / 6;
+  return LEFT + spread * index;
 }
 
 function stockX() {
