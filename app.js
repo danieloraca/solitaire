@@ -48,7 +48,7 @@ function newSeed() {
 }
 
 async function load() {
-  const response = await fetch("./dist/solitaire.wasm?v=large-bicycle-2", {
+  const response = await fetch("./dist/solitaire.wasm?v=large-bicycle-3", {
     cache: "no-store",
   });
   if (!response.ok) {
@@ -57,7 +57,7 @@ async function load() {
   const bytes = await response.arrayBuffer();
   const module = await WebAssembly.instantiate(bytes, {});
   wasm = module.instance.exports;
-  if (wasm.layout_version?.() !== 2) {
+  if (wasm.layout_version?.() !== 3) {
     throw new Error("Old WASM loaded. Run make build on the Pi and hard refresh the page.");
   }
   wasm.new_game(newSeed());

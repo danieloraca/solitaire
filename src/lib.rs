@@ -299,6 +299,18 @@ impl Game {
     fn render_cards(&self) -> Vec<RenderCard> {
         let mut cards = Vec::with_capacity(52);
 
+        if self.waste.len() >= 2 {
+            let card = self.waste[self.waste.len() - 2];
+            cards.push(RenderCard {
+                x: waste_x(),
+                y: TOP,
+                rank: card.rank,
+                suit: card.suit,
+                face_up: true,
+                selected: false,
+            });
+        }
+
         if let Some(card) = self.waste.last() {
             cards.push(RenderCard {
                 x: waste_x(),
@@ -546,7 +558,7 @@ pub extern "C" fn won() -> u8 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn layout_version() -> u32 {
-    2
+    3
 }
 
 fn render_card(idx: usize) -> Option<RenderCard> {
@@ -578,6 +590,22 @@ mod tests {
         assert_eq!(game.stock.len(), 23);
         assert_eq!(game.waste.len(), 1);
         assert!(game.waste.last().unwrap().face_up);
+    }
+
+    #[test]
+    fn render_keeps_waste_card_under_drag_target() {
+        let mut game = Game::new(42);
+        game.click(stock_x() + 4.0, TOP + 4.0);
+        game.click(stock_x() + 4.0, TOP + 4.0);
+
+        let rendered = game.render_cards();
+        let waste_cards = rendered
+            .iter()
+            .filter(|card| card.x == waste_x() && card.y == TOP)
+            .count();
+
+        assert_eq!(waste_cards, 2);
+        assert!(!rendered[0].selected);
     }
 
     #[test]
