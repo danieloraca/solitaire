@@ -6,8 +6,16 @@ use std::{
 };
 
 const DEFAULT_ADDR: &str = "0.0.0.0:3021";
+const APP_ROOT_ENV: &str = "SOLITAIRE_ROOT";
+const LEADERBOARD_FILE_ENV: &str = "SOLITAIRE_LEADERBOARD_FILE";
 const LEADERBOARD_FILE: &str = "leaderboard.tsv";
 const MAX_LEADERBOARD_ENTRIES: usize = 5;
+
+#[derive(Clone, Debug)]
+struct AppPaths {
+    public_root: PathBuf,
+    leaderboard_file: PathBuf,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct LeaderboardEntry {
@@ -18,13 +26,16 @@ struct LeaderboardEntry {
 
 fn main() -> io::Result<()> {
     let addr = env::var("SOLITAIRE_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_owned());
+    let paths = AppPaths::from_env()?;
     let listener = TcpListener::bind(&addr)?;
     println!("Solitaire listening on http://{addr}");
+    println!("Serving files from {}", paths.public_root.display());
+    println!("Leaderboard file: {}", paths.leaderboard_file.display());
 
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                if let Err(error) = handle_client(stream) {
+                if let Err(error) = handle_client(stream, &paths) {
                     eprintln!("request failed: {error}");
                 }
             }
@@ -35,7 +46,25 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn handle_client(mut stream: TcpStream) -> io::Result<()> {
+impl AppPaths {
+    fn from_env() -> io::Result<Self> {
+        let public_root = env::var_os(APP_ROOT_ENV)
+            .map(PathBuf::from)
+            .map(Ok)
+            .unwrap_or_else(env::current_dir)?;
+        let leaderboard_file = resolve_leaderboard_path(
+            &public_root,
+            env::var_os(LEADERBOARD_FILE_ENV).map(PathBuf::from),
+        );
+
+        Ok(Self {
+            public_root,
+            leaderboard_file,
+        })
+    }
+}
+
+fn handle_client(mut stream: TcpStream, paths: &AppPaths) -> io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
@@ -65,7 +94,7 @@ fn handle_client(mut stream: TcpStream) -> io::Result<()> {
     }
 
     if path == "/api/leaderboard" {
-        return handle_leaderboard_api(&mut stream, method, &body);
+        return handle_leaderboard_api(&mut stream, method, &body, &paths.leaderboard_file);
     }
 
     if method != "GET" && method != "HEAD" {
@@ -78,7 +107,7 @@ fn handle_client(mut stream: TcpStream) -> io::Result<()> {
         );
     }
 
-    let Some(path) = request_path(target) else {
+    let Some(path) = request_path(target, &paths.public_root) else {
         return send_response(
             &mut stream,
             "400 Bad Request",
@@ -110,10 +139,30 @@ fn handle_client(mut stream: TcpStream) -> io::Result<()> {
     }
 }
 
-fn handle_leaderboard_api(stream: &mut TcpStream, method: &str, body: &[u8]) -> io::Result<()> {
+fn handle_leaderboard_api(
+    stream: &mut TcpStream,
+    method: &str,
+    body: &[u8],
+    leaderboard_file: &Path,
+) -> io::Result<()> {
     match method {
         "GET" | "HEAD" => {
-            let entries = read_leaderboard()?;
+            let entries = match read_leaderboard(leaderboard_file) {
+                Ok(entries) => entries,
+                Err(error) => {
+                    eprintln!(
+                        "could not read leaderboard {}: {error}",
+                        leaderboard_file.display()
+                    );
+                    return send_response(
+                        stream,
+                        "500 Internal Server Error",
+                        "text/plain; charset=utf-8",
+                        b"Could not read leaderboard",
+                        method,
+                    );
+                }
+            };
             let json = leaderboard_json(&entries);
             send_response(
                 stream,
@@ -125,11 +174,38 @@ fn handle_leaderboard_api(stream: &mut TcpStream, method: &str, body: &[u8]) -> 
         }
         "POST" => match parse_leaderboard_entry(body) {
             Some(entry) => {
-                let mut entries = read_leaderboard()?;
+                let mut entries = match read_leaderboard(leaderboard_file) {
+                    Ok(entries) => entries,
+                    Err(error) => {
+                        eprintln!(
+                            "could not read leaderboard {}: {error}",
+                            leaderboard_file.display()
+                        );
+                        return send_response(
+                            stream,
+                            "500 Internal Server Error",
+                            "text/plain; charset=utf-8",
+                            b"Could not read leaderboard",
+                            method,
+                        );
+                    }
+                };
                 entries.push(entry);
                 sort_leaderboard(&mut entries);
                 entries.truncate(MAX_LEADERBOARD_ENTRIES);
-                write_leaderboard(&entries)?;
+                if let Err(error) = write_leaderboard(leaderboard_file, &entries) {
+                    eprintln!(
+                        "could not write leaderboard {}: {error}",
+                        leaderboard_file.display()
+                    );
+                    return send_response(
+                        stream,
+                        "500 Internal Server Error",
+                        "text/plain; charset=utf-8",
+                        b"Could not write leaderboard",
+                        method,
+                    );
+                }
                 let json = leaderboard_json(&entries);
                 send_response(
                     stream,
@@ -157,11 +233,19 @@ fn handle_leaderboard_api(stream: &mut TcpStream, method: &str, body: &[u8]) -> 
     }
 }
 
-fn request_path(target: &str) -> Option<PathBuf> {
+fn resolve_leaderboard_path(public_root: &Path, configured_path: Option<PathBuf>) -> PathBuf {
+    match configured_path {
+        Some(path) if path.is_absolute() => path,
+        Some(path) => public_root.join(path),
+        None => public_root.join(LEADERBOARD_FILE),
+    }
+}
+
+fn request_path(target: &str, public_root: &Path) -> Option<PathBuf> {
     let path = target.split('?').next().unwrap_or("/");
     let path = if path == "/" { "/index.html" } else { path };
     let relative = path.strip_prefix('/')?;
-    let mut resolved = PathBuf::from(".");
+    let mut resolved = public_root.to_path_buf();
 
     for component in Path::new(relative).components() {
         match component {
@@ -212,8 +296,8 @@ fn header_value<'a>(header: &'a str, name: &str) -> Option<&'a str> {
     }
 }
 
-fn read_leaderboard() -> io::Result<Vec<LeaderboardEntry>> {
-    let text = match fs::read_to_string(LEADERBOARD_FILE) {
+fn read_leaderboard(path: &Path) -> io::Result<Vec<LeaderboardEntry>> {
+    let text = match fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error),
@@ -228,7 +312,7 @@ fn read_leaderboard() -> io::Result<Vec<LeaderboardEntry>> {
     Ok(entries)
 }
 
-fn write_leaderboard(entries: &[LeaderboardEntry]) -> io::Result<()> {
+fn write_leaderboard(path: &Path, entries: &[LeaderboardEntry]) -> io::Result<()> {
     let mut text = String::new();
     for entry in entries {
         text.push_str(&format!(
@@ -238,7 +322,17 @@ fn write_leaderboard(entries: &[LeaderboardEntry]) -> io::Result<()> {
             sanitize_date(&entry.date)
         ));
     }
-    fs::write(LEADERBOARD_FILE, text)
+
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+
+    let mut tmp_path = path.to_path_buf();
+    tmp_path.set_extension("tmp");
+    fs::write(&tmp_path, text)?;
+    fs::rename(tmp_path, path)
 }
 
 fn parse_leaderboard_entry(body: &[u8]) -> Option<LeaderboardEntry> {
@@ -309,12 +403,41 @@ mod tests {
 
     #[test]
     fn root_serves_index() {
-        assert_eq!(request_path("/").unwrap(), PathBuf::from("./index.html"));
+        assert_eq!(
+            request_path("/", Path::new("/srv/solitaire")).unwrap(),
+            PathBuf::from("/srv/solitaire/index.html")
+        );
     }
 
     #[test]
     fn request_path_rejects_parent_traversal() {
-        assert!(request_path("/../Cargo.toml").is_none());
+        assert!(request_path("/../Cargo.toml", Path::new("/srv/solitaire")).is_none());
+    }
+
+    #[test]
+    fn leaderboard_path_defaults_under_public_root() {
+        assert_eq!(
+            resolve_leaderboard_path(Path::new("/srv/solitaire"), None),
+            PathBuf::from("/srv/solitaire/leaderboard.tsv")
+        );
+    }
+
+    #[test]
+    fn leaderboard_path_can_be_configured() {
+        assert_eq!(
+            resolve_leaderboard_path(
+                Path::new("/srv/solitaire"),
+                Some(PathBuf::from("data/scores.tsv"))
+            ),
+            PathBuf::from("/srv/solitaire/data/scores.tsv")
+        );
+        assert_eq!(
+            resolve_leaderboard_path(
+                Path::new("/srv/solitaire"),
+                Some(PathBuf::from("/var/lib/solitaire/scores.tsv"))
+            ),
+            PathBuf::from("/var/lib/solitaire/scores.tsv")
+        );
     }
 
     #[test]

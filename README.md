@@ -24,6 +24,16 @@ To bind a different address or port:
 SOLITAIRE_ADDR=127.0.0.1:3000 cargo run --release
 ```
 
+By default the server writes scores to `leaderboard.tsv` under the directory it serves.
+For a Raspberry Pi service, set explicit paths so systemd does not depend on its launch directory:
+
+```sh
+SOLITAIRE_ROOT=/home/pi/solitaire \
+SOLITAIRE_LEADERBOARD_FILE=/home/pi/solitaire/leaderboard.tsv \
+SOLITAIRE_ADDR=0.0.0.0:3021 \
+./target/release/solitaire
+```
+
 ## Test
 
 ```sh
