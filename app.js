@@ -19,7 +19,6 @@ const RANKS = ["", "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", 
 const FELT_LIGHT = "#23845b";
 const FELT_DARK = "#0b3829";
 const GOLD = "#f2d36b";
-const LEADERBOARD_KEY = "rust-solitaire-leaderboard";
 const MAX_LEADERBOARD_ENTRIES = 5;
 const DOUBLE_CLICK_MS = 320;
 const DOUBLE_CLICK_DISTANCE = 18;
@@ -542,62 +541,41 @@ function saveCompletedGame(score, moves) {
     return;
   }
 
-  const entries = readLeaderboard();
-  entries.push({
-    score,
-    moves,
-    date: new Date().toISOString(),
-  });
-  entries.sort(compareScores);
-  writeLeaderboard(entries.slice(0, MAX_LEADERBOARD_ENTRIES));
   savedWinGameId = currentGameId;
-  renderLeaderboard();
-}
-
-function compareScores(a, b) {
-  if (b.score !== a.score) {
-    return b.score - a.score;
-  }
-  if (a.moves !== b.moves) {
-    return a.moves - b.moves;
-  }
-  return new Date(a.date).getTime() - new Date(b.date).getTime();
-}
-
-function readLeaderboard() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(LEADERBOARD_KEY) || "[]");
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed
-      .filter((entry) => Number.isFinite(entry.score) && Number.isFinite(entry.moves))
-      .map((entry) => ({
-        score: entry.score,
-        moves: entry.moves,
-        date: typeof entry.date === "string" ? entry.date : new Date().toISOString(),
-      }))
-      .sort(compareScores)
-      .slice(0, MAX_LEADERBOARD_ENTRIES);
-  } catch {
-    return [];
-  }
-}
-
-function writeLeaderboard(entries) {
-  try {
-    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(entries));
-  } catch {
-    // Ignore private-mode or quota failures; the current game still works.
-  }
+  fetch("/api/leaderboard", {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+    },
+    body: `${score}\t${moves}\t${new Date().toISOString()}`,
+  })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error("Could not save leaderboard score");
+      }
+      return response.json();
+    })
+    .then(renderLeaderboardEntries)
+    .catch(() => renderLeaderboard());
 }
 
 function renderLeaderboard() {
-  const entries = readLeaderboard();
-  leaderboardEl.replaceChildren();
+  fetch("/api/leaderboard")
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error("Could not load leaderboard");
+      }
+      return response.json();
+    })
+    .then(renderLeaderboardEntries)
+    .catch(() => renderLeaderboardEntries([]));
+}
 
-  if (!entries.length) {
+function renderLeaderboardEntries(entries) {
+  leaderboardEl.replaceChildren();
+  const bestEntries = Array.isArray(entries) ? entries.slice(0, MAX_LEADERBOARD_ENTRIES) : [];
+
+  if (!bestEntries.length) {
     const empty = document.createElement("li");
     empty.className = "leaderboard-empty";
     empty.textContent = "No completed games yet";
@@ -605,7 +583,7 @@ function renderLeaderboard() {
     return;
   }
 
-  for (const entry of entries) {
+  for (const entry of bestEntries) {
     const item = document.createElement("li");
     const score = document.createElement("strong");
     const detail = document.createElement("span");
