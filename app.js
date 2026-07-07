@@ -659,7 +659,7 @@ canvas.addEventListener("pointerdown", (event) => {
   if (isDoublePress(event, point)) {
     lastPress = null;
     drag = null;
-    wasm.auto_move_to_foundation(point.x, point.y);
+    wasm.auto_move_card(point.x, point.y);
     scheduleDraw();
     return;
   }

@@ -137,7 +137,7 @@ impl Game {
         self.selected = None;
     }
 
-    fn auto_move_to_foundation(&mut self, x: f64, y: f64) -> bool {
+    fn auto_move_card(&mut self, x: f64, y: f64) -> bool {
         if self.won() {
             self.selected = None;
             return false;
@@ -148,12 +148,7 @@ impl Game {
             return false;
         };
 
-        if !matches!(source, Location::Waste | Location::Tableau(_, _)) {
-            self.selected = None;
-            return false;
-        }
-
-        let Some(card) = self.source_top_card(source) else {
+        let Some(card) = self.source_first_card(source) else {
             self.selected = None;
             return false;
         };
@@ -163,14 +158,24 @@ impl Game {
             return false;
         }
 
-        for idx in 0..4 {
-            if can_place_on_foundation(card, &self.foundations[idx]) {
-                let moved = self.try_move_to_foundation(source, idx);
-                if moved {
-                    self.selected = None;
-                    self.flip_open_tableau_cards();
+        if let Some(top_card) = self.source_top_card(source) {
+            for idx in 0..4 {
+                if can_place_on_foundation(top_card, &self.foundations[idx]) {
+                    let moved = self.try_move_to_foundation(source, idx);
+                    if moved {
+                        self.selected = None;
+                        self.flip_open_tableau_cards();
+                    }
+                    return moved;
                 }
-                return moved;
+            }
+        }
+
+        for idx in 0..7 {
+            if self.try_move_to_tableau(source, idx) {
+                self.selected = None;
+                self.flip_open_tableau_cards();
+                return true;
             }
         }
 
@@ -603,8 +608,8 @@ pub extern "C" fn click(x: f64, y: f64) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn auto_move_to_foundation(x: f64, y: f64) -> u8 {
-    let moved = GAME.with(|game| game.borrow_mut().auto_move_to_foundation(x, y));
+pub extern "C" fn auto_move_card(x: f64, y: f64) -> u8 {
+    let moved = GAME.with(|game| game.borrow_mut().auto_move_card(x, y));
     sync_render();
     u8::from(moved)
 }
@@ -833,7 +838,7 @@ mod tests {
             face_up: true,
         });
 
-        assert!(game.auto_move_to_foundation(waste_x() + 4.0, TOP + 4.0));
+        assert!(game.auto_move_card(waste_x() + 4.0, TOP + 4.0));
         assert!(game.waste.is_empty());
         assert_eq!(game.foundations[0].len(), 1);
         assert_eq!(game.moves, 1);
@@ -855,10 +860,14 @@ mod tests {
         }];
         let (x, y) = tableau_card_pos(&game.tableau[0], 0, 0);
 
-        assert!(game.auto_move_to_foundation(x + 4.0, y + 4.0));
+        assert!(game.auto_move_card(x + 4.0, y + 4.0));
         assert!(game.tableau[0].is_empty());
         assert_eq!(game.foundations[0].len(), 1);
 
+        let mut game = Game::new(42);
+        for pile in &mut game.tableau {
+            pile.clear();
+        }
         game.tableau[1] = vec![
             Card {
                 suit: 1,
@@ -873,8 +882,30 @@ mod tests {
         ];
         let (lower_x, lower_y) = tableau_card_pos(&game.tableau[1], 1, 0);
 
-        assert!(!game.auto_move_to_foundation(lower_x + 4.0, lower_y + 4.0));
+        assert!(!game.auto_move_card(lower_x + 4.0, lower_y + 4.0));
         assert_eq!(game.tableau[1].len(), 2);
+    }
+
+    #[test]
+    fn auto_move_sends_black_nine_to_red_ten() {
+        let mut game = Game::new(42);
+        game.tableau[0] = vec![Card {
+            suit: 1,
+            rank: 10,
+            face_up: true,
+        }];
+        game.tableau[1] = vec![Card {
+            suit: 0,
+            rank: 9,
+            face_up: true,
+        }];
+        let (x, y) = tableau_card_pos(&game.tableau[1], 1, 0);
+
+        assert!(game.auto_move_card(x + 4.0, y + 4.0));
+        assert_eq!(game.tableau[0].len(), 2);
+        assert!(game.tableau[1].is_empty());
+        assert_eq!(game.tableau[0][1].rank, 9);
+        assert_eq!(game.moves, 1);
     }
 
     #[test]
