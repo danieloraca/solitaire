@@ -2,6 +2,7 @@ const canvas = document.querySelector("#game");
 let ctx = canvas.getContext("2d");
 const statusEl = document.querySelector("#status");
 const newGameButton = document.querySelector("#new-game");
+const undoButton = document.querySelector("#undo");
 
 const W = 1100;
 const H = 780;
@@ -81,6 +82,7 @@ function draw() {
   drawSlots();
   drawCards();
   drawHud();
+  updateControls();
 }
 
 function drawFelt() {
@@ -512,6 +514,10 @@ function drawHud() {
   ctx.restore();
 }
 
+function updateControls() {
+  undoButton.disabled = !wasm || wasm.can_undo() !== 1;
+}
+
 function roundRect(x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -588,6 +594,14 @@ canvas.addEventListener("pointercancel", (event) => {
 newGameButton.addEventListener("click", () => {
   if (wasm) {
     wasm.new_game(newSeed());
+    drag = null;
+    scheduleDraw();
+  }
+});
+
+undoButton.addEventListener("click", () => {
+  if (wasm && wasm.undo() === 1) {
+    drag = null;
     scheduleDraw();
   }
 });

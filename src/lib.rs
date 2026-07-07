@@ -39,6 +39,16 @@ struct RenderCard {
     selected: bool,
 }
 
+#[derive(Clone, Debug)]
+struct Snapshot {
+    stock: Vec<Card>,
+    waste: Vec<Card>,
+    foundations: [Vec<Card>; 4],
+    tableau: [Vec<Card>; 7],
+    selected: Option<Selection>,
+    moves: u32,
+}
+
 #[derive(Debug)]
 struct Game {
     stock: Vec<Card>,
@@ -47,6 +57,7 @@ struct Game {
     tableau: [Vec<Card>; 7],
     selected: Option<Selection>,
     moves: u32,
+    undo_stack: Vec<Snapshot>,
 }
 
 impl Game {
@@ -69,6 +80,7 @@ impl Game {
             tableau,
             selected: None,
             moves: 0,
+            undo_stack: Vec::new(),
         }
     }
 
@@ -118,7 +130,9 @@ impl Game {
     }
 
     fn draw_stock(&mut self) {
-        if let Some(mut card) = self.stock.pop() {
+        if !self.stock.is_empty() {
+            self.save_undo();
+            let mut card = self.stock.pop().expect("stock is not empty");
             card.face_up = true;
             self.waste.push(card);
             self.moves += 1;
@@ -129,6 +143,7 @@ impl Game {
             return;
         }
 
+        self.save_undo();
         while let Some(mut card) = self.waste.pop() {
             card.face_up = false;
             self.stock.push(card);
@@ -175,13 +190,14 @@ impl Game {
             Location::Waste => self.waste.last().map(|_| loc),
             Location::Foundation(idx) => self.foundations[idx].last().map(|_| loc),
             Location::Tableau(pile_idx, card_idx) => {
-                let pile = &mut self.tableau[pile_idx];
+                let pile = &self.tableau[pile_idx];
                 let is_top_card = card_idx + 1 == pile.len();
-                let card = pile.get_mut(card_idx)?;
+                let card = pile.get(card_idx)?;
 
                 if !card.face_up {
                     if is_top_card {
-                        card.face_up = true;
+                        self.save_undo();
+                        self.tableau[pile_idx][card_idx].face_up = true;
                         self.moves += 1;
                     }
                     return None;
@@ -231,6 +247,7 @@ impl Game {
             return false;
         }
 
+        self.save_undo();
         let moved = self.take_cards(source);
         self.foundations[foundation_idx].extend(moved);
         self.moves += 1;
@@ -251,6 +268,7 @@ impl Game {
             return false;
         }
 
+        self.save_undo();
         let moved = self.take_cards(source);
         self.tableau[pile_idx].extend(moved);
         self.moves += 1;
@@ -371,6 +389,35 @@ impl Game {
 
     fn won(&self) -> bool {
         self.foundations.iter().all(|pile| pile.len() == 13)
+    }
+
+    fn save_undo(&mut self) {
+        self.undo_stack.push(Snapshot {
+            stock: self.stock.clone(),
+            waste: self.waste.clone(),
+            foundations: self.foundations.clone(),
+            tableau: self.tableau.clone(),
+            selected: None,
+            moves: self.moves,
+        });
+    }
+
+    fn undo(&mut self) -> bool {
+        let Some(snapshot) = self.undo_stack.pop() else {
+            return false;
+        };
+
+        self.stock = snapshot.stock;
+        self.waste = snapshot.waste;
+        self.foundations = snapshot.foundations;
+        self.tableau = snapshot.tableau;
+        self.selected = snapshot.selected;
+        self.moves = snapshot.moves;
+        true
+    }
+
+    fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty()
     }
 }
 
@@ -494,6 +541,18 @@ pub extern "C" fn click(x: f64, y: f64) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn undo() -> u8 {
+    let undone = GAME.with(|game| game.borrow_mut().undo());
+    sync_render();
+    u8::from(undone)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn can_undo() -> u8 {
+    GAME.with(|game| u8::from(game.borrow().can_undo()))
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn sync_render() {
     let cards = GAME.with(|game| game.borrow().render_cards());
     RENDER.with(|render| {
@@ -590,6 +649,51 @@ mod tests {
         assert_eq!(game.stock.len(), 23);
         assert_eq!(game.waste.len(), 1);
         assert!(game.waste.last().unwrap().face_up);
+    }
+
+    #[test]
+    fn undo_restores_stock_draw() {
+        let mut game = Game::new(42);
+        let top_stock = *game.stock.last().unwrap();
+
+        game.click(stock_x() + 4.0, TOP + 4.0);
+        assert!(game.can_undo());
+        assert_eq!(game.moves, 1);
+
+        assert!(game.undo());
+        assert_eq!(game.moves, 0);
+        assert_eq!(game.stock.len(), 24);
+        assert_eq!(game.waste.len(), 0);
+        assert_eq!(*game.stock.last().unwrap(), top_stock);
+        assert!(!game.can_undo());
+    }
+
+    #[test]
+    fn undo_restores_manual_tableau_flip() {
+        let mut game = Game::new(42);
+        let pile_idx = 1;
+        let card_idx = game.tableau[pile_idx].len() - 1;
+        game.tableau[pile_idx][card_idx].face_up = false;
+        assert!(!game.tableau[pile_idx][card_idx].face_up);
+
+        let (x, y) = tableau_card_pos(&game.tableau[pile_idx], pile_idx, card_idx);
+        game.click(x + 4.0, y + 4.0);
+        assert!(game.tableau[pile_idx][card_idx].face_up);
+
+        assert!(game.undo());
+        assert!(!game.tableau[pile_idx][card_idx].face_up);
+        assert_eq!(game.moves, 0);
+    }
+
+    #[test]
+    fn new_game_starts_without_undo_history() {
+        let mut game = Game::new(42);
+        game.click(stock_x() + 4.0, TOP + 4.0);
+        assert!(game.can_undo());
+
+        game = Game::new(99);
+        assert!(!game.can_undo());
+        assert!(!game.undo());
     }
 
     #[test]

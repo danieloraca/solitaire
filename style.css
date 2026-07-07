@@ -52,6 +52,12 @@ p {
   font-size: 0.95rem;
 }
 
+.controls {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+}
+
 button {
   flex: 0 0 auto;
   min-height: 42px;
@@ -70,8 +76,23 @@ button:hover {
   background: #ffe386;
 }
 
+button:disabled {
+  background: rgba(246, 241, 223, 0.16);
+  color: rgba(246, 241, 223, 0.5);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+button:disabled:hover {
+  background: rgba(246, 241, 223, 0.16);
+}
+
 button:active {
   transform: translateY(1px);
+}
+
+button:disabled:active {
+  transform: none;
 }
 
 canvas {
@@ -98,6 +119,10 @@ canvas:active {
   }
 
   .bar {
+    align-items: stretch;
+  }
+
+  .controls {
     align-items: stretch;
   }
 

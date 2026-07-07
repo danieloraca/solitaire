@@ -13,9 +13,14 @@
           <h1>Rust Solitaire</h1>
           <p id="status">Loading WASM...</p>
         </div>
-        <button id="new-game" type="button" aria-label="Start a new shuffled game">
-          New Game
-        </button>
+        <div class="controls">
+          <button id="undo" type="button" aria-label="Undo the last move" disabled>
+            Undo
+          </button>
+          <button id="new-game" type="button" aria-label="Start a new shuffled game">
+            New Game
+          </button>
+        </div>
       </header>
       <canvas id="game" width="1100" height="780" aria-label="Klondike solitaire board"></canvas>
     </main>
