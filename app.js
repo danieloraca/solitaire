@@ -23,6 +23,7 @@ const MAX_LEADERBOARD_ENTRIES = 5;
 const DOUBLE_CLICK_MS = 320;
 const DOUBLE_CLICK_DISTANCE = 18;
 const AUTO_PLAY_DELAY_MS = 170;
+const LEADERBOARD_STORAGE_KEY = "rust-solitaire-leaderboard";
 
 let wasm = null;
 let drag = null;
@@ -599,12 +600,21 @@ function saveCompletedGame(score, moves) {
   }
 
   savedWinGameId = currentGameId;
+  const entry = {
+    score,
+    moves,
+    date: new Date().toISOString(),
+  };
+
+  saveLocalLeaderboardEntry(entry);
+  renderLeaderboardEntries(readLocalLeaderboard());
+
   fetch("/api/leaderboard", {
     method: "POST",
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
     },
-    body: `${score}\t${moves}\t${new Date().toISOString()}`,
+    body: `${entry.score}\t${entry.moves}\t${entry.date}`,
   })
     .then((response) => {
       if (!response.ok) {
@@ -612,15 +622,19 @@ function saveCompletedGame(score, moves) {
       }
       return response.json();
     })
-    .then(renderLeaderboardEntries)
+    .then((entries) => {
+      const merged = mergeLeaderboardEntries(readLocalLeaderboard(), entries);
+      saveLocalLeaderboard(merged);
+      renderLeaderboardEntries(merged);
+    })
     .catch((error) => {
-      savedWinGameId = "";
       console.error(error);
-      renderLeaderboard();
     });
 }
 
 function renderLeaderboard() {
+  renderLeaderboardEntries(readLocalLeaderboard());
+
   fetch("/api/leaderboard")
     .then((response) => {
       if (!response.ok) {
@@ -628,13 +642,70 @@ function renderLeaderboard() {
       }
       return response.json();
     })
-    .then(renderLeaderboardEntries)
-    .catch(() => renderLeaderboardEntries([]));
+    .then((entries) => {
+      const merged = mergeLeaderboardEntries(readLocalLeaderboard(), entries);
+      saveLocalLeaderboard(merged);
+      renderLeaderboardEntries(merged);
+    })
+    .catch(() => {});
+}
+
+function readLocalLeaderboard() {
+  try {
+    const entries = JSON.parse(localStorage.getItem(LEADERBOARD_STORAGE_KEY) || "[]");
+    return normalizeLeaderboardEntries(entries);
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalLeaderboardEntry(entry) {
+  const entries = readLocalLeaderboard();
+  entries.push(entry);
+  saveLocalLeaderboard(entries);
+}
+
+function saveLocalLeaderboard(entries) {
+  const normalized = normalizeLeaderboardEntries(entries);
+  localStorage.setItem(LEADERBOARD_STORAGE_KEY, JSON.stringify(normalized));
+}
+
+function normalizeLeaderboardEntries(entries) {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+
+  return entries
+    .map((entry) => ({
+      score: Number(entry?.score),
+      moves: Number(entry?.moves),
+      date: String(entry?.date || ""),
+    }))
+    .filter((entry) => Number.isFinite(entry.score) && Number.isFinite(entry.moves) && entry.date)
+    .sort((a, b) => b.score - a.score || a.moves - b.moves || a.date.localeCompare(b.date))
+    .slice(0, MAX_LEADERBOARD_ENTRIES);
+}
+
+function mergeLeaderboardEntries(...groups) {
+  const seen = new Set();
+  const merged = [];
+
+  for (const entry of normalizeLeaderboardEntries(groups.flat())) {
+    const key = `${entry.score}:${entry.moves}:${entry.date}`;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    merged.push(entry);
+  }
+
+  return normalizeLeaderboardEntries(merged);
 }
 
 function renderLeaderboardEntries(entries) {
   leaderboardEl.replaceChildren();
-  const bestEntries = Array.isArray(entries) ? entries.slice(0, MAX_LEADERBOARD_ENTRIES) : [];
+  const bestEntries = normalizeLeaderboardEntries(entries);
 
   if (!bestEntries.length) {
     const empty = document.createElement("li");
