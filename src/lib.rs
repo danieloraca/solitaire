@@ -183,6 +183,109 @@ impl Game {
         false
     }
 
+    fn auto_play_step(&mut self) -> bool {
+        if self.won() {
+            self.selected = None;
+            return false;
+        }
+
+        self.selected = None;
+
+        if self.auto_play_foundation_move()
+            || self.auto_play_waste_to_tableau()
+            || self.auto_play_revealing_tableau_move()
+        {
+            self.flip_open_tableau_cards();
+            return true;
+        }
+
+        if !self.stock.is_empty() {
+            self.draw_stock();
+            return true;
+        }
+
+        false
+    }
+
+    fn auto_play_foundation_move(&mut self) -> bool {
+        if self.auto_play_source_to_foundation(Location::Waste) {
+            return true;
+        }
+
+        for pile_idx in 0..7 {
+            let Some(card_idx) = self.tableau[pile_idx].len().checked_sub(1) else {
+                continue;
+            };
+
+            if self.auto_play_source_to_foundation(Location::Tableau(pile_idx, card_idx)) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn auto_play_source_to_foundation(&mut self, source: Location) -> bool {
+        let Some(card) = self.source_top_card(source) else {
+            return false;
+        };
+
+        if !card.face_up {
+            return false;
+        }
+
+        for idx in 0..4 {
+            if self.try_move_to_foundation(source, idx) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn auto_play_waste_to_tableau(&mut self) -> bool {
+        if self.waste.last().is_none_or(|card| !card.face_up) {
+            return false;
+        }
+
+        for pile_idx in 0..7 {
+            if self.try_move_to_tableau(Location::Waste, pile_idx) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn auto_play_revealing_tableau_move(&mut self) -> bool {
+        for source_pile_idx in 0..7 {
+            let pile_len = self.tableau[source_pile_idx].len();
+            if pile_len == 0 {
+                continue;
+            }
+
+            for card_idx in 0..pile_len {
+                let card = self.tableau[source_pile_idx][card_idx];
+                if !card.face_up || !self.move_reveals_tableau_card(source_pile_idx, card_idx) {
+                    continue;
+                }
+
+                let source = Location::Tableau(source_pile_idx, card_idx);
+                for target_pile_idx in 0..7 {
+                    if self.try_move_to_tableau(source, target_pile_idx) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    fn move_reveals_tableau_card(&self, pile_idx: usize, card_idx: usize) -> bool {
+        card_idx > 0 && !self.tableau[pile_idx][card_idx - 1].face_up
+    }
+
     fn draw_stock(&mut self) {
         if !self.stock.is_empty() {
             self.save_undo();
@@ -615,6 +718,13 @@ pub extern "C" fn auto_move_card(x: f64, y: f64) -> u8 {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn auto_play_step() -> u8 {
+    let moved = GAME.with(|game| game.borrow_mut().auto_play_step());
+    sync_render();
+    u8::from(moved)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn undo() -> u8 {
     let undone = GAME.with(|game| game.borrow_mut().undo());
     sync_render();
@@ -696,7 +806,7 @@ pub extern "C" fn won() -> u8 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn layout_version() -> u32 {
-    3
+    4
 }
 
 fn render_card(idx: usize) -> Option<RenderCard> {
@@ -906,6 +1016,101 @@ mod tests {
         assert!(game.tableau[1].is_empty());
         assert_eq!(game.tableau[0][1].rank, 9);
         assert_eq!(game.moves, 1);
+    }
+
+    #[test]
+    fn auto_play_prefers_foundation_move() {
+        let mut game = Game::new(42);
+        game.stock.clear();
+        game.waste.push(Card {
+            suit: 0,
+            rank: 1,
+            face_up: true,
+        });
+
+        assert!(game.auto_play_step());
+        assert!(game.waste.is_empty());
+        assert_eq!(game.foundations[0].len(), 1);
+        assert_eq!(game.score, SCORE_TO_FOUNDATION);
+    }
+
+    #[test]
+    fn auto_play_moves_waste_to_tableau() {
+        let mut game = Game::new(42);
+        game.stock.clear();
+        for pile in &mut game.tableau {
+            pile.clear();
+        }
+        game.waste.push(Card {
+            suit: 0,
+            rank: 9,
+            face_up: true,
+        });
+        game.tableau[0] = vec![Card {
+            suit: 1,
+            rank: 10,
+            face_up: true,
+        }];
+
+        assert!(game.auto_play_step());
+        assert!(game.waste.is_empty());
+        assert_eq!(game.tableau[0].len(), 2);
+        assert_eq!(game.score, SCORE_WASTE_TO_TABLEAU);
+    }
+
+    #[test]
+    fn auto_play_moves_tableau_stack_when_it_reveals_card() {
+        let mut game = Game::new(42);
+        game.stock.clear();
+        for pile in &mut game.tableau {
+            pile.clear();
+        }
+        game.tableau[0] = vec![Card {
+            suit: 1,
+            rank: 10,
+            face_up: true,
+        }];
+        game.tableau[1] = vec![
+            Card {
+                suit: 2,
+                rank: 4,
+                face_up: false,
+            },
+            Card {
+                suit: 0,
+                rank: 9,
+                face_up: true,
+            },
+        ];
+
+        assert!(game.auto_play_step());
+        assert_eq!(game.tableau[0].len(), 2);
+        assert_eq!(game.tableau[1].len(), 1);
+        assert!(game.tableau[1][0].face_up);
+        assert_eq!(game.score, SCORE_TURN_TABLEAU);
+    }
+
+    #[test]
+    fn auto_play_draws_stock_but_does_not_recycle() {
+        let mut game = Game::new(42);
+        for pile in &mut game.tableau {
+            pile.clear();
+        }
+        game.waste.clear();
+        game.stock = vec![Card {
+            suit: 0,
+            rank: 5,
+            face_up: false,
+        }];
+
+        assert!(game.auto_play_step());
+        assert_eq!(game.stock.len(), 0);
+        assert_eq!(game.waste.len(), 1);
+        assert_eq!(game.score, 0);
+
+        assert!(!game.auto_play_step());
+        assert_eq!(game.waste.len(), 1);
+        assert_eq!(game.score, 0);
     }
 
     #[test]

@@ -22,6 +22,7 @@ const GOLD = "#f2d36b";
 const MAX_LEADERBOARD_ENTRIES = 5;
 const DOUBLE_CLICK_MS = 320;
 const DOUBLE_CLICK_DISTANCE = 18;
+const AUTO_PLAY_DELAY_MS = 170;
 
 let wasm = null;
 let drag = null;
@@ -30,6 +31,8 @@ let feltSprite = null;
 let currentGameId = "";
 let savedWinGameId = "";
 let lastPress = null;
+let autoPlayActive = false;
+let autoPlayTimer = null;
 const cardSpriteCache = new Map();
 
 function foundationX(index) {
@@ -56,7 +59,7 @@ function newSeed() {
 }
 
 async function load() {
-  const response = await fetch("./dist/solitaire.wasm?v=large-bicycle-3", {
+  const response = await fetch("./dist/solitaire.wasm?v=large-bicycle-4", {
     cache: "no-store",
   });
   if (!response.ok) {
@@ -65,7 +68,7 @@ async function load() {
   const bytes = await response.arrayBuffer();
   const module = await WebAssembly.instantiate(bytes, {});
   wasm = module.instance.exports;
-  if (wasm.layout_version?.() !== 3) {
+  if (wasm.layout_version?.() !== 4) {
     throw new Error("Old WASM loaded. Run make build on the Pi and hard refresh the page.");
   }
   renderLeaderboard();
@@ -73,6 +76,7 @@ async function load() {
 }
 
 function startNewGame() {
+  stopAutoPlay();
   const seed = newSeed();
   currentGameId = `${Date.now()}:${seed}`;
   savedWinGameId = "";
@@ -533,7 +537,60 @@ function drawHud() {
 }
 
 function updateControls() {
-  undoButton.disabled = !wasm || wasm.can_undo() !== 1;
+  undoButton.disabled = !wasm || autoPlayActive || wasm.can_undo() !== 1;
+}
+
+function toggleAutoPlay() {
+  if (autoPlayActive) {
+    stopAutoPlay();
+    scheduleDraw();
+    return;
+  }
+
+  startAutoPlay();
+}
+
+function startAutoPlay() {
+  if (!wasm || wasm.won() === 1) {
+    return;
+  }
+
+  autoPlayActive = true;
+  drag = null;
+  lastPress = null;
+  updateControls();
+  runAutoPlayStep();
+}
+
+function stopAutoPlay() {
+  autoPlayActive = false;
+  if (autoPlayTimer !== null) {
+    clearTimeout(autoPlayTimer);
+    autoPlayTimer = null;
+  }
+  updateControls();
+}
+
+function runAutoPlayStep() {
+  if (!autoPlayActive || !wasm) {
+    return;
+  }
+
+  if (wasm.won() === 1) {
+    stopAutoPlay();
+    scheduleDraw();
+    return;
+  }
+
+  const moved = wasm.auto_play_step() === 1;
+  scheduleDraw();
+
+  if (!moved || wasm.won() === 1) {
+    stopAutoPlay();
+    return;
+  }
+
+  autoPlayTimer = setTimeout(runAutoPlayStep, AUTO_PLAY_DELAY_MS);
 }
 
 function saveCompletedGame(score, moves) {
@@ -635,6 +692,7 @@ canvas.addEventListener("pointerdown", (event) => {
   }
 
   event.preventDefault();
+  stopAutoPlay();
   canvas.setPointerCapture(event.pointerId);
   const point = boardPoint(event);
 
@@ -712,9 +770,23 @@ newGameButton.addEventListener("click", () => {
 });
 
 undoButton.addEventListener("click", () => {
+  stopAutoPlay();
   if (wasm && wasm.undo() === 1) {
     drag = null;
     scheduleDraw();
+  }
+});
+
+window.addEventListener("keydown", (event) => {
+  if (
+    event.shiftKey &&
+    event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    event.code === "KeyA"
+  ) {
+    event.preventDefault();
+    toggleAutoPlay();
   }
 });
 
