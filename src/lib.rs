@@ -137,6 +137,47 @@ impl Game {
         self.selected = None;
     }
 
+    fn auto_move_to_foundation(&mut self, x: f64, y: f64) -> bool {
+        if self.won() {
+            self.selected = None;
+            return false;
+        }
+
+        let Some(source) = self.hit_location(x, y) else {
+            self.selected = None;
+            return false;
+        };
+
+        if !matches!(source, Location::Waste | Location::Tableau(_, _)) {
+            self.selected = None;
+            return false;
+        }
+
+        let Some(card) = self.source_top_card(source) else {
+            self.selected = None;
+            return false;
+        };
+
+        if !card.face_up {
+            self.selected = None;
+            return false;
+        }
+
+        for idx in 0..4 {
+            if can_place_on_foundation(card, &self.foundations[idx]) {
+                let moved = self.try_move_to_foundation(source, idx);
+                if moved {
+                    self.selected = None;
+                    self.flip_open_tableau_cards();
+                }
+                return moved;
+            }
+        }
+
+        self.selected = None;
+        false
+    }
+
     fn draw_stock(&mut self) {
         if !self.stock.is_empty() {
             self.save_undo();
@@ -562,6 +603,13 @@ pub extern "C" fn click(x: f64, y: f64) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn auto_move_to_foundation(x: f64, y: f64) -> u8 {
+    let moved = GAME.with(|game| game.borrow_mut().auto_move_to_foundation(x, y));
+    sync_render();
+    u8::from(moved)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn undo() -> u8 {
     let undone = GAME.with(|game| game.borrow_mut().undo());
     sync_render();
@@ -774,6 +822,59 @@ mod tests {
                 + SCORE_WASTE_TO_TABLEAU
                 + SCORE_RECYCLE_STOCK
         );
+    }
+
+    #[test]
+    fn auto_move_sends_waste_card_to_foundation() {
+        let mut game = Game::new(42);
+        game.waste.push(Card {
+            suit: 0,
+            rank: 1,
+            face_up: true,
+        });
+
+        assert!(game.auto_move_to_foundation(waste_x() + 4.0, TOP + 4.0));
+        assert!(game.waste.is_empty());
+        assert_eq!(game.foundations[0].len(), 1);
+        assert_eq!(game.moves, 1);
+        assert_eq!(game.score, SCORE_TO_FOUNDATION);
+
+        assert!(game.undo());
+        assert_eq!(game.waste.len(), 1);
+        assert!(game.foundations[0].is_empty());
+        assert_eq!(game.score, 0);
+    }
+
+    #[test]
+    fn auto_move_only_uses_top_tableau_cards() {
+        let mut game = Game::new(42);
+        game.tableau[0] = vec![Card {
+            suit: 0,
+            rank: 1,
+            face_up: true,
+        }];
+        let (x, y) = tableau_card_pos(&game.tableau[0], 0, 0);
+
+        assert!(game.auto_move_to_foundation(x + 4.0, y + 4.0));
+        assert!(game.tableau[0].is_empty());
+        assert_eq!(game.foundations[0].len(), 1);
+
+        game.tableau[1] = vec![
+            Card {
+                suit: 1,
+                rank: 1,
+                face_up: true,
+            },
+            Card {
+                suit: 2,
+                rank: 9,
+                face_up: true,
+            },
+        ];
+        let (lower_x, lower_y) = tableau_card_pos(&game.tableau[1], 1, 0);
+
+        assert!(!game.auto_move_to_foundation(lower_x + 4.0, lower_y + 4.0));
+        assert_eq!(game.tableau[1].len(), 2);
     }
 
     #[test]

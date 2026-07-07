@@ -689,6 +689,18 @@ canvas.addEventListener("pointercancel", (event) => {
   }
 });
 
+canvas.addEventListener("dblclick", (event) => {
+  if (!wasm) {
+    return;
+  }
+
+  event.preventDefault();
+  const point = boardPoint(event);
+  drag = null;
+  wasm.auto_move_to_foundation(point.x, point.y);
+  scheduleDraw();
+});
+
 newGameButton.addEventListener("click", () => {
   if (wasm) {
     drag = null;
