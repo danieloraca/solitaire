@@ -21,6 +21,8 @@ const FELT_DARK = "#0b3829";
 const GOLD = "#f2d36b";
 const LEADERBOARD_KEY = "rust-solitaire-leaderboard";
 const MAX_LEADERBOARD_ENTRIES = 5;
+const DOUBLE_CLICK_MS = 320;
+const DOUBLE_CLICK_DISTANCE = 18;
 
 let wasm = null;
 let drag = null;
@@ -28,6 +30,7 @@ let drawQueued = false;
 let feltSprite = null;
 let currentGameId = "";
 let savedWinGameId = "";
+let lastPress = null;
 const cardSpriteCache = new Map();
 
 function foundationX(index) {
@@ -634,6 +637,16 @@ function boardPoint(event) {
   };
 }
 
+function isDoublePress(event, point) {
+  if (!lastPress || lastPress.pointerType !== event.pointerType) {
+    return false;
+  }
+
+  const elapsed = event.timeStamp - lastPress.time;
+  const distance = Math.hypot(point.x - lastPress.point.x, point.y - lastPress.point.y);
+  return elapsed <= DOUBLE_CLICK_MS && distance <= DOUBLE_CLICK_DISTANCE;
+}
+
 canvas.addEventListener("pointerdown", (event) => {
   if (!wasm || event.button !== 0) {
     return;
@@ -642,6 +655,20 @@ canvas.addEventListener("pointerdown", (event) => {
   event.preventDefault();
   canvas.setPointerCapture(event.pointerId);
   const point = boardPoint(event);
+
+  if (isDoublePress(event, point)) {
+    lastPress = null;
+    drag = null;
+    wasm.auto_move_to_foundation(point.x, point.y);
+    scheduleDraw();
+    return;
+  }
+
+  lastPress = {
+    point,
+    pointerType: event.pointerType,
+    time: event.timeStamp,
+  };
   drag = {
     pointerId: event.pointerId,
     start: point,
@@ -677,6 +704,7 @@ canvas.addEventListener("pointerup", (event) => {
   drag = null;
 
   if (shouldDrop) {
+    lastPress = null;
     wasm.click(point.x, point.y);
   }
   scheduleDraw();
@@ -684,21 +712,14 @@ canvas.addEventListener("pointerup", (event) => {
 
 canvas.addEventListener("pointercancel", (event) => {
   if (drag?.pointerId === event.pointerId) {
+    lastPress = null;
     drag = null;
     scheduleDraw();
   }
 });
 
 canvas.addEventListener("dblclick", (event) => {
-  if (!wasm) {
-    return;
-  }
-
   event.preventDefault();
-  const point = boardPoint(event);
-  drag = null;
-  wasm.auto_move_to_foundation(point.x, point.y);
-  scheduleDraw();
 });
 
 newGameButton.addEventListener("click", () => {
