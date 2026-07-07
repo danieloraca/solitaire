@@ -3,6 +3,7 @@ let ctx = canvas.getContext("2d");
 const statusEl = document.querySelector("#status");
 const newGameButton = document.querySelector("#new-game");
 const undoButton = document.querySelector("#undo");
+const leaderboardEl = document.querySelector("#leaderboard");
 
 const W = 1100;
 const H = 780;
@@ -18,11 +19,15 @@ const RANKS = ["", "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", 
 const FELT_LIGHT = "#23845b";
 const FELT_DARK = "#0b3829";
 const GOLD = "#f2d36b";
+const LEADERBOARD_KEY = "rust-solitaire-leaderboard";
+const MAX_LEADERBOARD_ENTRIES = 5;
 
 let wasm = null;
 let drag = null;
 let drawQueued = false;
 let feltSprite = null;
+let currentGameId = "";
+let savedWinGameId = "";
 const cardSpriteCache = new Map();
 
 function foundationX(index) {
@@ -61,7 +66,15 @@ async function load() {
   if (wasm.layout_version?.() !== 3) {
     throw new Error("Old WASM loaded. Run make build on the Pi and hard refresh the page.");
   }
-  wasm.new_game(newSeed());
+  renderLeaderboard();
+  startNewGame();
+}
+
+function startNewGame() {
+  const seed = newSeed();
+  currentGameId = `${Date.now()}:${seed}`;
+  savedWinGameId = "";
+  wasm.new_game(seed);
   scheduleDraw();
 }
 
@@ -502,6 +515,8 @@ function drawHud() {
     return;
   }
 
+  saveCompletedGame(score, wasm.moves_count());
+
   ctx.save();
   ctx.fillStyle = "rgba(8, 24, 19, 0.74)";
   ctx.fillRect(0, 0, W, H);
@@ -517,6 +532,88 @@ function drawHud() {
 
 function updateControls() {
   undoButton.disabled = !wasm || wasm.can_undo() !== 1;
+}
+
+function saveCompletedGame(score, moves) {
+  if (savedWinGameId === currentGameId) {
+    return;
+  }
+
+  const entries = readLeaderboard();
+  entries.push({
+    score,
+    moves,
+    date: new Date().toISOString(),
+  });
+  entries.sort(compareScores);
+  writeLeaderboard(entries.slice(0, MAX_LEADERBOARD_ENTRIES));
+  savedWinGameId = currentGameId;
+  renderLeaderboard();
+}
+
+function compareScores(a, b) {
+  if (b.score !== a.score) {
+    return b.score - a.score;
+  }
+  if (a.moves !== b.moves) {
+    return a.moves - b.moves;
+  }
+  return new Date(a.date).getTime() - new Date(b.date).getTime();
+}
+
+function readLeaderboard() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LEADERBOARD_KEY) || "[]");
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter((entry) => Number.isFinite(entry.score) && Number.isFinite(entry.moves))
+      .map((entry) => ({
+        score: entry.score,
+        moves: entry.moves,
+        date: typeof entry.date === "string" ? entry.date : new Date().toISOString(),
+      }))
+      .sort(compareScores)
+      .slice(0, MAX_LEADERBOARD_ENTRIES);
+  } catch {
+    return [];
+  }
+}
+
+function writeLeaderboard(entries) {
+  try {
+    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(entries));
+  } catch {
+    // Ignore private-mode or quota failures; the current game still works.
+  }
+}
+
+function renderLeaderboard() {
+  const entries = readLeaderboard();
+  leaderboardEl.replaceChildren();
+
+  if (!entries.length) {
+    const empty = document.createElement("li");
+    empty.className = "leaderboard-empty";
+    empty.textContent = "No completed games yet";
+    leaderboardEl.append(empty);
+    return;
+  }
+
+  for (const entry of entries) {
+    const item = document.createElement("li");
+    const score = document.createElement("strong");
+    const detail = document.createElement("span");
+    const date = new Date(entry.date);
+
+    score.textContent = `${entry.score} points`;
+    detail.textContent = `${entry.moves} moves - ${Number.isNaN(date.getTime()) ? "Saved" : date.toLocaleDateString()}`;
+
+    item.append(score, detail);
+    leaderboardEl.append(item);
+  }
 }
 
 function roundRect(x, y, w, h, r) {
@@ -594,9 +691,8 @@ canvas.addEventListener("pointercancel", (event) => {
 
 newGameButton.addEventListener("click", () => {
   if (wasm) {
-    wasm.new_game(newSeed());
     drag = null;
-    scheduleDraw();
+    startNewGame();
   }
 });
 

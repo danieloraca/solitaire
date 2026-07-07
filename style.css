@@ -113,6 +113,56 @@ canvas:active {
   cursor: grabbing;
 }
 
+.leaderboard {
+  max-width: 520px;
+  margin-top: 14px;
+  padding-bottom: 8px;
+}
+
+.leaderboard h2 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.leaderboard-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.leaderboard-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: rgba(4, 19, 15, 0.34);
+}
+
+.leaderboard-list strong {
+  color: #fff4bd;
+  font-size: 0.95rem;
+}
+
+.leaderboard-list span {
+  color: #d7d1b9;
+  font-size: 0.84rem;
+  text-align: right;
+}
+
+.leaderboard-empty {
+  justify-content: flex-start;
+  color: #d7d1b9;
+  font-size: 0.9rem;
+}
+
 @media (max-width: 720px) {
   body {
     padding: 10px;
@@ -141,5 +191,19 @@ canvas:active {
 
   canvas {
     width: 100%;
+  }
+
+  .leaderboard {
+    max-width: none;
+  }
+
+  .leaderboard-list li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .leaderboard-list span {
+    text-align: left;
   }
 }
