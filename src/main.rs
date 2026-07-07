@@ -54,7 +54,7 @@ fn handle_client(mut stream: TcpStream) -> io::Result<()> {
             break;
         }
 
-        if let Some(value) = trimmed.strip_prefix("Content-Length:") {
+        if let Some(value) = header_value(trimmed, "content-length") {
             content_length = value.trim().parse().unwrap_or(0);
         }
     }
@@ -203,6 +203,15 @@ fn content_type(path: &Path) -> &'static str {
     }
 }
 
+fn header_value<'a>(header: &'a str, name: &str) -> Option<&'a str> {
+    let (header_name, value) = header.split_once(':')?;
+    if header_name.eq_ignore_ascii_case(name) {
+        Some(value)
+    } else {
+        None
+    }
+}
+
 fn read_leaderboard() -> io::Result<Vec<LeaderboardEntry>> {
     let text = match fs::read_to_string(LEADERBOARD_FILE) {
         Ok(text) => text,
@@ -327,6 +336,19 @@ mod tests {
             })
         );
         assert!(parse_leaderboard_entry(b"bad\t42\tdate").is_none());
+    }
+
+    #[test]
+    fn header_lookup_is_case_insensitive() {
+        assert_eq!(
+            header_value("content-length: 12", "content-length"),
+            Some(" 12")
+        );
+        assert_eq!(
+            header_value("Content-Length: 12", "content-length"),
+            Some(" 12")
+        );
+        assert_eq!(header_value("Host: localhost", "content-length"), None);
     }
 
     #[test]

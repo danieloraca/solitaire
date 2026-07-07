@@ -556,7 +556,11 @@ function saveCompletedGame(score, moves) {
       return response.json();
     })
     .then(renderLeaderboardEntries)
-    .catch(() => renderLeaderboard());
+    .catch((error) => {
+      savedWinGameId = "";
+      console.error(error);
+      renderLeaderboard();
+    });
 }
 
 function renderLeaderboard() {
