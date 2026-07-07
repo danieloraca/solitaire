@@ -9,6 +9,11 @@ const LEFT: f64 = 34.0;
 const TABLEAU_TOP: f64 = 214.0;
 const FACE_DOWN_STEP: f64 = 25.0;
 const FACE_UP_STEP: f64 = 38.0;
+const SCORE_WASTE_TO_TABLEAU: i32 = 5;
+const SCORE_TO_FOUNDATION: i32 = 10;
+const SCORE_TURN_TABLEAU: i32 = 5;
+const SCORE_FOUNDATION_TO_TABLEAU: i32 = -15;
+const SCORE_RECYCLE_STOCK: i32 = -100;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Card {
@@ -47,6 +52,7 @@ struct Snapshot {
     tableau: [Vec<Card>; 7],
     selected: Option<Selection>,
     moves: u32,
+    score: i32,
 }
 
 #[derive(Debug)]
@@ -57,6 +63,7 @@ struct Game {
     tableau: [Vec<Card>; 7],
     selected: Option<Selection>,
     moves: u32,
+    score: i32,
     undo_stack: Vec<Snapshot>,
 }
 
@@ -80,6 +87,7 @@ impl Game {
             tableau,
             selected: None,
             moves: 0,
+            score: 0,
             undo_stack: Vec::new(),
         }
     }
@@ -149,6 +157,7 @@ impl Game {
             self.stock.push(card);
         }
         self.moves += 1;
+        self.score += SCORE_RECYCLE_STOCK;
     }
 
     fn hit_location(&self, x: f64, y: f64) -> Option<Location> {
@@ -199,6 +208,7 @@ impl Game {
                         self.save_undo();
                         self.tableau[pile_idx][card_idx].face_up = true;
                         self.moves += 1;
+                        self.score += SCORE_TURN_TABLEAU;
                     }
                     return None;
                 }
@@ -251,6 +261,7 @@ impl Game {
         let moved = self.take_cards(source);
         self.foundations[foundation_idx].extend(moved);
         self.moves += 1;
+        self.score += SCORE_TO_FOUNDATION;
         true
     }
 
@@ -272,6 +283,11 @@ impl Game {
         let moved = self.take_cards(source);
         self.tableau[pile_idx].extend(moved);
         self.moves += 1;
+        self.score += match source {
+            Location::Waste => SCORE_WASTE_TO_TABLEAU,
+            Location::Foundation(_) => SCORE_FOUNDATION_TO_TABLEAU,
+            Location::Tableau(_, _) => 0,
+        };
         true
     }
 
@@ -309,7 +325,10 @@ impl Game {
     fn flip_open_tableau_cards(&mut self) {
         for pile in &mut self.tableau {
             if let Some(card) = pile.last_mut() {
-                card.face_up = true;
+                if !card.face_up {
+                    card.face_up = true;
+                    self.score += SCORE_TURN_TABLEAU;
+                }
             }
         }
     }
@@ -399,6 +418,7 @@ impl Game {
             tableau: self.tableau.clone(),
             selected: None,
             moves: self.moves,
+            score: self.score,
         });
     }
 
@@ -413,6 +433,7 @@ impl Game {
         self.tableau = snapshot.tableau;
         self.selected = snapshot.selected;
         self.moves = snapshot.moves;
+        self.score = snapshot.score;
         true
     }
 
@@ -611,6 +632,11 @@ pub extern "C" fn moves_count() -> u32 {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn score() -> i32 {
+    GAME.with(|game| game.borrow().score)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn won() -> u8 {
     GAME.with(|game| u8::from(game.borrow().won()))
 }
@@ -662,6 +688,7 @@ mod tests {
 
         assert!(game.undo());
         assert_eq!(game.moves, 0);
+        assert_eq!(game.score, 0);
         assert_eq!(game.stock.len(), 24);
         assert_eq!(game.waste.len(), 0);
         assert_eq!(*game.stock.last().unwrap(), top_stock);
@@ -679,10 +706,12 @@ mod tests {
         let (x, y) = tableau_card_pos(&game.tableau[pile_idx], pile_idx, card_idx);
         game.click(x + 4.0, y + 4.0);
         assert!(game.tableau[pile_idx][card_idx].face_up);
+        assert_eq!(game.score, SCORE_TURN_TABLEAU);
 
         assert!(game.undo());
         assert!(!game.tableau[pile_idx][card_idx].face_up);
         assert_eq!(game.moves, 0);
+        assert_eq!(game.score, 0);
     }
 
     #[test]
@@ -694,6 +723,57 @@ mod tests {
         game = Game::new(99);
         assert!(!game.can_undo());
         assert!(!game.undo());
+    }
+
+    #[test]
+    fn scoring_tracks_common_card_moves() {
+        let mut game = Game::new(42);
+        game.waste.push(Card {
+            suit: 0,
+            rank: 1,
+            face_up: true,
+        });
+
+        assert!(game.try_move_to_foundation(Location::Waste, 0));
+        assert_eq!(game.score, SCORE_TO_FOUNDATION);
+
+        game.tableau[0] = vec![Card {
+            suit: 1,
+            rank: 2,
+            face_up: true,
+        }];
+        assert!(game.try_move_to_tableau(Location::Foundation(0), 0));
+        assert_eq!(
+            game.score,
+            SCORE_TO_FOUNDATION + SCORE_FOUNDATION_TO_TABLEAU
+        );
+
+        game.tableau[1].clear();
+        game.waste.push(Card {
+            suit: 2,
+            rank: 13,
+            face_up: true,
+        });
+        assert!(game.try_move_to_tableau(Location::Waste, 1));
+        assert_eq!(
+            game.score,
+            SCORE_TO_FOUNDATION + SCORE_FOUNDATION_TO_TABLEAU + SCORE_WASTE_TO_TABLEAU
+        );
+
+        game.stock.clear();
+        game.waste.push(Card {
+            suit: 1,
+            rank: 7,
+            face_up: true,
+        });
+        game.draw_stock();
+        assert_eq!(
+            game.score,
+            SCORE_TO_FOUNDATION
+                + SCORE_FOUNDATION_TO_TABLEAU
+                + SCORE_WASTE_TO_TABLEAU
+                + SCORE_RECYCLE_STOCK
+        );
     }
 
     #[test]

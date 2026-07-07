@@ -493,9 +493,10 @@ function drawCardShadow(x, y, selected) {
 
 function drawHud() {
   const won = wasm.won() === 1;
+  const score = wasm.score();
   statusEl.textContent = won
-    ? `Won in ${wasm.moves_count()} moves`
-    : `${wasm.moves_count()} moves - ${wasm.stock_count()} in stock, ${wasm.waste_count()} in waste`;
+    ? `Won in ${wasm.moves_count()} moves - ${score} points`
+    : `${wasm.moves_count()} moves - ${score} points - ${wasm.stock_count()} in stock, ${wasm.waste_count()} in waste`;
 
   if (!won) {
     return;
@@ -510,7 +511,7 @@ function drawHud() {
   ctx.font = "800 56px Inter, system-ui";
   ctx.fillText("You cleared it", W / 2, H / 2 - 22);
   ctx.font = "600 22px Inter, system-ui";
-  ctx.fillText(`${wasm.moves_count()} moves`, W / 2, H / 2 + 28);
+  ctx.fillText(`${wasm.moves_count()} moves - ${score} points`, W / 2, H / 2 + 28);
   ctx.restore();
 }
 
