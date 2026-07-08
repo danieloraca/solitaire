@@ -1,6 +1,7 @@
 const canvas = document.querySelector("#game");
 let ctx = canvas.getContext("2d");
 const statusEl = document.querySelector("#status");
+const playCountEl = document.querySelector("#play-count");
 const newGameButton = document.querySelector("#new-game");
 const undoButton = document.querySelector("#undo");
 const leaderboardEl = document.querySelector("#leaderboard");
@@ -82,7 +83,36 @@ function startNewGame() {
   currentGameId = `${Date.now()}:${seed}`;
   savedWinGameId = "";
   wasm.new_game(seed);
+  recordPlayedGame();
   scheduleDraw();
+}
+
+function recordPlayedGame() {
+  fetch("/api/play-count", {
+    method: "POST",
+  })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error("Could not update play count");
+      }
+      return response.json();
+    })
+    .then(({ plays }) => {
+      renderPlayCount(plays);
+    })
+    .catch((error) => {
+      console.error(error);
+    });
+}
+
+function renderPlayCount(plays) {
+  const count = Number(plays);
+  if (!Number.isFinite(count) || count < 1) {
+    playCountEl.textContent = "";
+    return;
+  }
+
+  playCountEl.textContent = `Played ${count.toLocaleString()} ${count === 1 ? "time" : "times"}`;
 }
 
 function scheduleDraw() {

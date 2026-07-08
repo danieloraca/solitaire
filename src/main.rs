@@ -8,13 +8,16 @@ use std::{
 const DEFAULT_ADDR: &str = "0.0.0.0:3021";
 const APP_ROOT_ENV: &str = "SOLITAIRE_ROOT";
 const LEADERBOARD_FILE_ENV: &str = "SOLITAIRE_LEADERBOARD_FILE";
+const PLAY_COUNT_FILE_ENV: &str = "SOLITAIRE_PLAY_COUNT_FILE";
 const LEADERBOARD_FILE: &str = "leaderboard.tsv";
+const PLAY_COUNT_FILE: &str = "play-count.txt";
 const MAX_LEADERBOARD_ENTRIES: usize = 5;
 
 #[derive(Clone, Debug)]
 struct AppPaths {
     public_root: PathBuf,
     leaderboard_file: PathBuf,
+    play_count_file: PathBuf,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,6 +34,7 @@ fn main() -> io::Result<()> {
     println!("Solitaire listening on http://{addr}");
     println!("Serving files from {}", paths.public_root.display());
     println!("Leaderboard file: {}", paths.leaderboard_file.display());
+    println!("Play count file: {}", paths.play_count_file.display());
 
     for stream in listener.incoming() {
         match stream {
@@ -56,10 +60,16 @@ impl AppPaths {
             &public_root,
             env::var_os(LEADERBOARD_FILE_ENV).map(PathBuf::from),
         );
+        let play_count_file = resolve_play_count_path(
+            &public_root,
+            &leaderboard_file,
+            env::var_os(PLAY_COUNT_FILE_ENV).map(PathBuf::from),
+        );
 
         Ok(Self {
             public_root,
             leaderboard_file,
+            play_count_file,
         })
     }
 }
@@ -97,6 +107,10 @@ fn handle_client(mut stream: TcpStream, paths: &AppPaths) -> io::Result<()> {
         return handle_leaderboard_api(&mut stream, method, &body, &paths.leaderboard_file);
     }
 
+    if path == "/api/play-count" {
+        return handle_play_count_api(&mut stream, method, &paths.play_count_file);
+    }
+
     if method != "GET" && method != "HEAD" {
         return send_response(
             &mut stream,
@@ -116,6 +130,16 @@ fn handle_client(mut stream: TcpStream, paths: &AppPaths) -> io::Result<()> {
             method,
         );
     };
+
+    if is_private_data_path(&path, paths) {
+        return send_response(
+            &mut stream,
+            "404 Not Found",
+            "text/plain",
+            b"Not found",
+            method,
+        );
+    }
 
     match fs::read(&path) {
         Ok(body) => send_response(&mut stream, "200 OK", content_type(&path), &body, method),
@@ -233,11 +257,95 @@ fn handle_leaderboard_api(
     }
 }
 
+fn handle_play_count_api(
+    stream: &mut TcpStream,
+    method: &str,
+    play_count_file: &Path,
+) -> io::Result<()> {
+    match method {
+        "GET" | "HEAD" => {
+            let count = match read_play_count(play_count_file) {
+                Ok(count) => count,
+                Err(error) => {
+                    eprintln!(
+                        "could not read play count {}: {error}",
+                        play_count_file.display()
+                    );
+                    return send_response(
+                        stream,
+                        "500 Internal Server Error",
+                        "text/plain; charset=utf-8",
+                        b"Could not read play count",
+                        method,
+                    );
+                }
+            };
+            let json = play_count_json(count);
+            send_response(
+                stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &json,
+                method,
+            )
+        }
+        "POST" => {
+            let count = match increment_play_count(play_count_file) {
+                Ok(count) => count,
+                Err(error) => {
+                    eprintln!(
+                        "could not write play count {}: {error}",
+                        play_count_file.display()
+                    );
+                    return send_response(
+                        stream,
+                        "500 Internal Server Error",
+                        "text/plain; charset=utf-8",
+                        b"Could not write play count",
+                        method,
+                    );
+                }
+            };
+            let json = play_count_json(count);
+            send_response(
+                stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &json,
+                method,
+            )
+        }
+        _ => send_response(
+            stream,
+            "405 Method Not Allowed",
+            "text/plain; charset=utf-8",
+            b"Method not allowed",
+            method,
+        ),
+    }
+}
+
 fn resolve_leaderboard_path(public_root: &Path, configured_path: Option<PathBuf>) -> PathBuf {
     match configured_path {
         Some(path) if path.is_absolute() => path,
         Some(path) => public_root.join(path),
         None => public_root.join(LEADERBOARD_FILE),
+    }
+}
+
+fn resolve_play_count_path(
+    public_root: &Path,
+    leaderboard_file: &Path,
+    configured_path: Option<PathBuf>,
+) -> PathBuf {
+    match configured_path {
+        Some(path) if path.is_absolute() => path,
+        Some(path) => public_root.join(path),
+        None => leaderboard_file
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(public_root)
+            .join(PLAY_COUNT_FILE),
     }
 }
 
@@ -255,6 +363,13 @@ fn request_path(target: &str, public_root: &Path) -> Option<PathBuf> {
     }
 
     Some(resolved)
+}
+
+fn is_private_data_path(path: &Path, paths: &AppPaths) -> bool {
+    path == paths.leaderboard_file
+        || path == paths.play_count_file
+        || path == paths.public_root.join(LEADERBOARD_FILE)
+        || path == paths.public_root.join(PLAY_COUNT_FILE)
 }
 
 fn send_response(
@@ -335,6 +450,35 @@ fn write_leaderboard(path: &Path, entries: &[LeaderboardEntry]) -> io::Result<()
     fs::rename(tmp_path, path)
 }
 
+fn read_play_count(path: &Path) -> io::Result<u64> {
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error),
+    };
+
+    Ok(text.trim().parse().unwrap_or(0))
+}
+
+fn increment_play_count(path: &Path) -> io::Result<u64> {
+    let count = read_play_count(path)?.saturating_add(1);
+    write_play_count(path, count)?;
+    Ok(count)
+}
+
+fn write_play_count(path: &Path, count: u64) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+
+    let mut tmp_path = path.to_path_buf();
+    tmp_path.set_extension("tmp");
+    fs::write(&tmp_path, format!("{count}\n"))?;
+    fs::rename(tmp_path, path)
+}
+
 fn parse_leaderboard_entry(body: &[u8]) -> Option<LeaderboardEntry> {
     parse_leaderboard_line(body)
 }
@@ -380,6 +524,10 @@ fn leaderboard_json(entries: &[LeaderboardEntry]) -> Vec<u8> {
     }
     json.push(']');
     json.into_bytes()
+}
+
+fn play_count_json(count: u64) -> Vec<u8> {
+    format!("{{\"plays\":{count}}}").into_bytes()
 }
 
 fn json_escape(value: &str) -> String {
@@ -438,6 +586,60 @@ mod tests {
             ),
             PathBuf::from("/var/lib/solitaire/scores.tsv")
         );
+    }
+
+    #[test]
+    fn play_count_path_defaults_next_to_leaderboard() {
+        assert_eq!(
+            resolve_play_count_path(
+                Path::new("/srv/solitaire"),
+                Path::new("/var/lib/solitaire/leaderboard.tsv"),
+                None
+            ),
+            PathBuf::from("/var/lib/solitaire/play-count.txt")
+        );
+    }
+
+    #[test]
+    fn play_count_path_can_be_configured() {
+        assert_eq!(
+            resolve_play_count_path(
+                Path::new("/srv/solitaire"),
+                Path::new("/srv/solitaire/leaderboard.tsv"),
+                Some(PathBuf::from("data/plays.txt"))
+            ),
+            PathBuf::from("/srv/solitaire/data/plays.txt")
+        );
+        assert_eq!(
+            resolve_play_count_path(
+                Path::new("/srv/solitaire"),
+                Path::new("/srv/solitaire/leaderboard.tsv"),
+                Some(PathBuf::from("/var/lib/solitaire/plays.txt"))
+            ),
+            PathBuf::from("/var/lib/solitaire/plays.txt")
+        );
+    }
+
+    #[test]
+    fn private_data_files_are_not_static_files() {
+        let paths = AppPaths {
+            public_root: PathBuf::from("/srv/solitaire"),
+            leaderboard_file: PathBuf::from("/srv/solitaire/leaderboard.tsv"),
+            play_count_file: PathBuf::from("/srv/solitaire/play-count.txt"),
+        };
+
+        assert!(is_private_data_path(
+            Path::new("/srv/solitaire/leaderboard.tsv"),
+            &paths
+        ));
+        assert!(is_private_data_path(
+            Path::new("/srv/solitaire/play-count.txt"),
+            &paths
+        ));
+        assert!(!is_private_data_path(
+            Path::new("/srv/solitaire/index.html"),
+            &paths
+        ));
     }
 
     #[test]
@@ -514,6 +716,14 @@ mod tests {
         assert_eq!(
             String::from_utf8(json).unwrap(),
             r#"[{"score":10,"moves":2,"date":"date \"quoted\""}]"#
+        );
+    }
+
+    #[test]
+    fn play_count_json_returns_counter() {
+        assert_eq!(
+            String::from_utf8(play_count_json(42)).unwrap(),
+            r#"{"plays":42}"#
         );
     }
 }

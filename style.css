@@ -52,6 +52,13 @@ p {
   font-size: 0.95rem;
 }
 
+.play-count {
+  margin-top: 3px;
+  color: #fff4bd;
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
 .controls {
   display: flex;
   flex: 0 0 auto;
